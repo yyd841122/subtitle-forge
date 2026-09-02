@@ -273,25 +273,57 @@ class TestRoleStubInjection:
 
 # ---------------------------------------------------------------------------
 # 概念边界在资产组织中成立（忠实层/审查层、基础层/衍生层，最小形态）
-# 产物自带边界声明（不锁死目录布局——断言读产物自己的声明文本）
+# 运行摘要自描述资产组织（asset_organization 清单）：测试从该声明读取
+# 各层位置后验证边界语义——不硬编码任何路径/目录名，布局变化只改声明。
 # ---------------------------------------------------------------------------
 
 
 class TestLayerBoundaries:
-    def test_faithful_layer_declares_no_system_judgment(self, tmp_path, ass_file):
-        """忠实层资产自声明：忠实表达来源内容，系统判断另存（R2.5 最小形态）。
-        审查层目录存在且为空（01 骨架无 Review Note，09 票产出）。"""
+    def test_faithful_layer_holds_source_knowledge_no_system_judgment(
+        self, tmp_path, ass_file
+    ):
+        """忠实层资产：按 Source 存放、忠实表达来源内容、自声明不含系统
+        判断（R2.5 最小形态）。"""
 
         asset_dir = run_and_write(tmp_path, ass_file, default_roles(make_units_with_time_range()))
-        units_text = read_text(asset_dir / "sources" / "ep01" / "knowledge-units.md")
+        summary = parse_json_block(asset_dir / "run-summary.md")
+        org = summary["asset_organization"]
+
+        # 忠实层按 Source 组织：每个 Source 一份资产（从清单读取，非硬编码）
+        per_source = org["faithful_layer"]["per_source"]
+        assert len(per_source) == 1
+        units_doc = parse_json_block(asset_dir / per_source[0])
+        assert units_doc["source_id"] == "ep01"
+        units_text = read_text(asset_dir / per_source[0])
         assert "忠实层资产" in units_text
         assert "系统判断不写入本文件" in units_text
-        assert (asset_dir / "review").is_dir()
 
-    def test_base_layer_per_source_derived_layer_separate(self, tmp_path, ass_file):
-        """基础层按 Source 组织、独立成立；衍生层独立目录（R2.6 最小形态）。"""
+    def test_review_layer_separate_from_faithful(self, tmp_path, ass_file):
+        """审查层独立声明且与忠实层分离（R2.5 最小形态；01 骨架无正式
+        Review Note——09 票产出，此处只验证分离的组织边界成立）。"""
 
         asset_dir = run_and_write(tmp_path, ass_file, default_roles(make_units_with_time_range()))
-        units_doc = parse_json_block(asset_dir / "sources" / "ep01" / "knowledge-units.md")
-        assert units_doc["source_id"] == "ep01"
-        assert (asset_dir / "derived").is_dir()
+        org = parse_json_block(asset_dir / "run-summary.md")["asset_organization"]
+
+        review = org["review_layer"]
+        assert review["holds"] != org["faithful_layer"]  # 声明为不同职责
+        assert "系统判断" in review["holds"]
+        assert (asset_dir / review["path"]).is_dir()
+        # 忠实层资产不在审查层路径下（分离成立）
+        faithful_paths = org["faithful_layer"]["per_source"]
+        assert all(not str(p).startswith(str(review["path"])) for p in faithful_paths)
+
+    def test_derived_layer_separate_and_recomputable_declaration(
+        self, tmp_path, ass_file
+    ):
+        """衍生层独立声明、可整体重算，与基础层（每 Source 资产）分离
+        （R2.6 最小形态）。"""
+
+        asset_dir = run_and_write(tmp_path, ass_file, default_roles(make_units_with_time_range()))
+        org = parse_json_block(asset_dir / "run-summary.md")["asset_organization"]
+
+        derived = org["derived_layer"]
+        assert (asset_dir / derived["path"]).is_dir()
+        assert "重算" in derived["holds"]
+        faithful_paths = org["faithful_layer"]["per_source"]
+        assert all(not str(p).startswith(str(derived["path"])) for p in faithful_paths)

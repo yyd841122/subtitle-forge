@@ -160,7 +160,11 @@ def write_gap_report(dir_root: Path, report: GapReport) -> Path:
     return path
 
 
-def write_run_summary(dir_root: Path, summary: RunSummary) -> Path:
+def write_run_summary(
+    dir_root: Path,
+    summary: RunSummary,
+    source_units: dict[str, list[KnowledgeUnit]] | None = None,
+) -> Path:
     path = dir_root / "run-summary.md"
     sources = [
         {
@@ -197,6 +201,10 @@ def write_run_summary(dir_root: Path, summary: RunSummary) -> Path:
                     UNIT_STATUS_NEEDS_REVIEW,
                     UNIT_STATUS_FAILED,
                 ],
+                # 资产组织自描述：忠实层（每 Source 独立成立）、审查层、
+                # 衍生层的位置声明。层的概念边界由此可观察，而具体路径
+                # 是声明的取值不是测试的假设——布局变更只改声明。
+                "asset_organization": _asset_organization(dir_root),
                 "sources": sources,
             }
         ),
@@ -206,6 +214,24 @@ def write_run_summary(dir_root: Path, summary: RunSummary) -> Path:
     ]
     path.write_text("\n".join(lines), encoding="utf-8")
     return path
+
+
+def _asset_organization(dir_root: Path) -> dict:
+    """从已写盘的目录结构生成资产组织清单（相对路径声明）。
+
+    忠实层 = 各 Source 的知识资产；审查层 = 系统判断（Review Note，
+    09 票产出）；衍生层 = 跨 Source 可重算结构（15 票裁定形态）。
+    """
+
+    faithful = sorted(
+        str(p.relative_to(dir_root))
+        for p in (dir_root / "sources").glob("*/knowledge-units.md")
+    )
+    return {
+        "faithful_layer": {"per_source": faithful},
+        "review_layer": {"path": "review", "holds": "系统判断（Review Note）"},
+        "derived_layer": {"path": "derived", "holds": "跨 Source 衍生结构（可整体重算）"},
+    }
 
 
 def write_all(
@@ -226,5 +252,6 @@ def write_all(
     (dir_root / "derived" / ".gitkeep").write_text("", encoding="utf-8")
     written.append(write_trusted_set(dir_root, trusted))
     written.append(write_gap_report(dir_root, gaps))
+    # 运行摘要最后写：其 asset_organization 清单描述已落盘的完整组织。
     written.append(write_run_summary(dir_root, summary))
     return written

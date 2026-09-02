@@ -100,9 +100,9 @@ def run_corpus(corpus: Corpus, roles: CognitiveRoles) -> RunOutcome:
                 # 票内裁定（优先序）：审计拒绝是完整下落——被拒单元不进
                 # 发布集（R2.4 已满足）且留痕（A11），故拒绝先于无引用挡板
                 # 生效；missing_source_reference 挡板只守"通过"路径。
-                if not verdict.reason:
-                    # A11：缺口条目须含原因。拒绝结论不带理由是角色契约
-                    # 破坏，fail loud，不产出缺原因的半成品条目。
+                if not verdict.reason.strip():
+                    # A11：缺口条目须含原因。拒绝结论不带（可读）理由是
+                    # 角色契约破坏，fail loud，不产出缺原因的半成品条目。
                     raise ValueError(
                         f"推理审计对知识单元 {unit.unit_id!r} 返回拒绝结论但缺少理由："
                         "缺口报告条目须含原因（A11）"

@@ -182,24 +182,25 @@ class TestAuditRejectionAcceptance:
 
 class TestAuditRejectionBoundaries:
     def test_reject_without_reason_fails_loud(self, tmp_path, ass_file):
-        """A11 守卫：拒绝结论不带理由 → 缺口条目将缺"原因"，属角色契约
-        破坏，fail loud（不产出语义不完整的条目）。"""
+        """A11 守卫：拒绝结论不带可读理由（空或纯空白）→ 缺口条目将缺
+        "原因"，属角色契约破坏，fail loud（不产出语义不完整的条目）。"""
 
-        roles = CognitiveRoles(
-            extractor=StubExtractor(script={"ep01": make_units_with_time_range()[:1]}),
-            inference_auditor=StubInferenceAuditor(
-                verdicts={"u-001": UnitAuditVerdict(verdict="reject", reason="")}
-            ),
-            coverage_auditor=StubCoverageAuditor(),
-        )
-        mod = types.ModuleType("silent_reject_stub_roles")
-        mod.stub_roles = lambda: roles  # type: ignore[attr-defined]
-        sys.modules["silent_reject_stub_roles"] = mod
-        from subtitle_forge.cli import main
+        for blank_reason in ("", "   "):
+            roles = CognitiveRoles(
+                extractor=StubExtractor(script={"ep01": make_units_with_time_range()[:1]}),
+                inference_auditor=StubInferenceAuditor(
+                    verdicts={"u-001": UnitAuditVerdict(verdict="reject", reason=blank_reason)}
+                ),
+                coverage_auditor=StubCoverageAuditor(),
+            )
+            mod = types.ModuleType("silent_reject_stub_roles")
+            mod.stub_roles = lambda: roles  # type: ignore[attr-defined]
+            sys.modules["silent_reject_stub_roles"] = mod
+            from subtitle_forge.cli import main
 
-        with pytest.raises(ValueError, match="u-001.*缺少理由"):
-            main(["run", str(ass_file.parent), str(tmp_path / "assets"),
-                  "--stub-module", "silent_reject_stub_roles"])
+            with pytest.raises(ValueError, match="u-001.*缺少理由"):
+                main(["run", str(ass_file.parent), str(tmp_path / "assets"),
+                      "--stub-module", "silent_reject_stub_roles"])
 
     def test_inconclusive_still_fails_loud(self, tmp_path, ass_file):
         """待复核（inconclusive）语义不属本票（05 票）：替身返回不确定

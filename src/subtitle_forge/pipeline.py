@@ -4,21 +4,30 @@ Q27 裁决：具体阶段拓扑不是产品强制架构，本模块的内部函�
 外承诺。外部接缝只是：输入（Corpus + 认知角色集）→ 运行结果
 （可信发布集、缺口报告、运行摘要 + 按 Source 的候选单元，供资产落盘）。
 
-本票（03）的行为范围：推理审计结论为"拒绝"的候选单元不进可信发布集，
-缺口报告留 audit_rejection 条目（含 Source、指向单元、原因、下落），
-运行摘要记 rejected——含被拒单元的 Source 仍为 success（A4：全部单元
-有明确下落即成功）。待复核（inconclusive）与无引用单元的下落语义仍
-由后续票落地——本票对这些路径显式挡住（fail loud），不做半成品处理，
-避免静默产出语义错误的产物。
+审计门 = **程序比对 ∧ 推理审计** 双通过（04 票，A1 / Impl 2）：
+- 程序比对（R3.1）：发布集准入前的程序门——quoted_text 无法在所指
+  Segment 原文中比对成立的单元不进可信发布集，以 audit_rejection 落
+  缺口报告。不经任何认知角色（Impl 5：忠实性审计含纯程序比对部分，
+  不由生成同一内容的替身自评）。
+- 推理审计（03 票）：替身结论为"拒绝"的单元不进发布集，缺口报告留
+  audit_rejection 条目（含 Source、指向单元、原因、下落），运行摘要
+  记 rejected。
+
+两类拒绝共用同一拒绝下落机制（03 票）。含被拒单元的 Source 仍为
+success（A4：全部单元有明确下落即成功）。待复核（inconclusive）与
+无引用单元的下落语义仍由后续票落地——本模块对这些路径显式挡住
+（fail loud），不做半成品处理，避免静默产出语义错误的产物。
 
 角色行为的可观察性（Testing Decisions：替身分别设定行为，断言只针对
 外部产物）：提炼行为体现在可信发布集内容；推理审计的结论理由（通过/
 拒绝）记录进运行摘要，拒绝另留缺口条目；覆盖审计结论记录进运行
-摘要——三个认知角色的行为变化都无需窥探内部即可辨别。
+摘要——三个认知角色的行为变化都无需窥探内部即可辨别。程序门的结论
+（忠实性比对成立与否）不经认知角色，直接以同一下落机制可观察。
 """
 
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass, field
 
@@ -73,6 +82,73 @@ def _trusted_entry(source: Source, unit: KnowledgeUnit) -> TrustedSetEntry:
     )
 
 
+def _reject_unit(
+    source: Source,
+    unit: KnowledgeUnit,
+    reason: str,
+    gaps: list[GapEntry],
+    units_record: list[UnitRecord],
+) -> None:
+    """审计拒绝的统一下落（03 票机制，R3.5、R4.2，A2/A4/A11）：被拒单元
+    不进可信发布集（R2.4 已满足）；缺口报告留 audit_rejection 条目
+    （Source、指向单元、原因、下落——A11）；运行摘要记 rejected。推理
+    审计与忠实性程序比对两类拒绝共用本机制（04 票）。"""
+
+    gaps.append(
+        GapEntry(
+            category=GAP_AUDIT_REJECTION,
+            source_id=source.source_id,
+            subject=unit.unit_id,
+            reason=reason,
+            outcome=GAP_OUTCOME_AUDIT_REJECTION,
+        )
+    )
+    units_record.append(
+        UnitRecord(unit_id=unit.unit_id, status=UNIT_STATUS_REJECTED, reason=reason)
+    )
+
+
+# 忠实性比对的最小规范化（Open Impl 10 票内裁定）：任意空白连续段——
+# 空格、换行（ASS \N 解析后的形态）、制表等——折叠为单个空格，去首尾
+# 空白。只容忍排版差异；非空白字符的增删改一概不放过（逐字性保持）。
+# 全半角折叠、大小写、Unicode 规范形态等属比对容差的真实数据调优，
+# 不在本票范围。
+_WHITESPACE_RUN_RE = re.compile(r"\s+")
+
+# 忠实性拒绝理由的稳定前缀：缺口条目与运行摘要据此可辨原因来自忠实性
+# 程序比对（区别于推理审计的拒绝）。
+_FAITHFULNESS_REASON_PREFIX = "忠实性比对不成立"
+
+
+def _normalize_for_quote_match(text: str) -> str:
+    """最小规范化：空白连续段折叠为单个空格，去首尾空白。"""
+
+    return _WHITESPACE_RUN_RE.sub(" ", text).strip()
+
+
+def _faithfulness_rejection_reason(source: Source, unit: KnowledgeUnit) -> str | None:
+    """忠实性程序比对（R3.1、A1）：quoted_text 必须能在所指 Segment 的
+    原文中比对成立（Segment.text 为比对基准）。
+
+    返回 None 表示成立；否则返回以 _FAITHFULNESS_REASON_PREFIX 开头的
+    拒绝理由。纯程序比对，不经任何认知角色（Impl 5）。比对成立 = 最小
+    规范化后的引用文本是所指片段规范化原文的逐字子串；空引用文本不
+    构成逐字引用（空串是任意文本的子串，不得因此空洞成立）。
+    """
+
+    ref = unit.source_reference
+    assert ref is not None  # 调用方已挡住无引用单元（06 票挡板在前）
+    quote = _normalize_for_quote_match(ref.quoted_text)
+    if not quote:
+        return f"{_FAITHFULNESS_REASON_PREFIX}：引用文本为空，不构成逐字引用"
+    segment = next((s for s in source.segments if s.segment_id == ref.segment_id), None)
+    if segment is None:
+        return f"{_FAITHFULNESS_REASON_PREFIX}：所指片段 {ref.segment_id} 不存在于该 Source 的原文"
+    if quote not in _normalize_for_quote_match(segment.text):
+        return f"{_FAITHFULNESS_REASON_PREFIX}：引用文本不存在于所指片段 {ref.segment_id} 的原文"
+    return None
+
+
 def run_corpus(corpus: Corpus, roles: CognitiveRoles) -> RunOutcome:
     """对一个 Corpus 执行端到端流程。
 
@@ -98,8 +174,9 @@ def run_corpus(corpus: Corpus, roles: CognitiveRoles) -> RunOutcome:
 
             if verdict.verdict == "reject":
                 # 票内裁定（优先序）：审计拒绝是完整下落——被拒单元不进
-                # 发布集（R2.4 已满足）且留痕（A11），故拒绝先于无引用挡板
-                # 生效；missing_source_reference 挡板只守"通过"路径。
+                # 发布集（R2.4 已满足）且留痕（A11），故拒绝先于忠实性
+                # 程序门与无引用挡板生效（单单元单条下落）；后两者只守
+                # "通过"路径。
                 if not verdict.reason.strip():
                     # A11：缺口条目须含原因。拒绝结论不带（可读）理由是
                     # 角色契约破坏，fail loud，不产出缺原因的半成品条目。
@@ -107,25 +184,7 @@ def run_corpus(corpus: Corpus, roles: CognitiveRoles) -> RunOutcome:
                         f"推理审计对知识单元 {unit.unit_id!r} 返回拒绝结论但缺少理由："
                         "缺口报告条目须含原因（A11）"
                     )
-                # 审计拒绝的下落（R3.5、R4.2，A2/A4）：不进可信发布集；
-                # 缺口报告留 audit_rejection 条目（Source、指向单元、
-                # 原因、下落——A11）；运行摘要记 rejected。被拒单元有
-                # 明确下落，不妨碍 Source 成功（R4.6：拒绝只发生在
-                # Knowledge Unit 级，Source 级无"拒绝"）。
-                gaps.append(
-                    GapEntry(
-                        category=GAP_AUDIT_REJECTION,
-                        source_id=source.source_id,
-                        subject=unit.unit_id,
-                        reason=verdict.reason,
-                        outcome=GAP_OUTCOME_AUDIT_REJECTION,
-                    )
-                )
-                units_record.append(
-                    UnitRecord(
-                        unit_id=unit.unit_id, status=UNIT_STATUS_REJECTED, reason=verdict.reason
-                    )
-                )
+                _reject_unit(source, unit, verdict.reason, gaps, units_record)
                 continue
 
             if verdict.verdict != "pass":
@@ -137,6 +196,15 @@ def run_corpus(corpus: Corpus, roles: CognitiveRoles) -> RunOutcome:
                 # R2.4：无有效 Source Reference 不得进入发布集，且须有
                 # 显性下落——该下落的完整语义（R2.4、A17）由后续票落地。
                 raise OutOfScopeVerdictError(unit.unit_id, "missing_source_reference")
+
+            # —— 忠实性程序比对（发布集准入前的程序门，R3.1、A1）——
+            # 审计门 = 程序比对 ∧ 推理审计：推理审计通过不足以放行——
+            # quoted_text 无法在所指 Segment 原文比对成立的单元同样拒绝，
+            # 经同一拒绝下落机制（03 票）。不经任何认知角色（Impl 5）。
+            faithfulness_reason = _faithfulness_rejection_reason(source, unit)
+            if faithfulness_reason is not None:
+                _reject_unit(source, unit, faithfulness_reason, gaps, units_record)
+                continue
 
             trusted.append(_trusted_entry(source, unit))
             # 通过结论的理由进运行摘要：推理审计角色的行为在外部产物中

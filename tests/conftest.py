@@ -203,6 +203,116 @@ def make_units_a2_overreach() -> tuple[KnowledgeUnit, ...]:
     )
 
 
+# ---------------------------------------------------------------------------
+# Ticket 04 受控输入：忠实性程序比对（A1 假引用 + 最小规范化容差对照）
+# ---------------------------------------------------------------------------
+
+# 编造的引用文本：读起来像课程内容，但不存在于 ep01 任何 Segment 的
+# 原文（假引用的受控种子，A1）。
+FAKE_QUOTE_TEXT = "任何递归函数的基准情形都在 n 等于一时返回一"
+
+
+def make_units_a1_fake_quote() -> tuple[KnowledgeUnit, ...]:
+    """A1（忠实性程序比对）场景的三个单元：u-002 的 quoted_text 是编造
+    的——锚定 seg2 但其文本不存在于原文；u-001/u-003 带真实引用。推理
+    审计替身对全部单元判 pass（默认），假引用只可能被程序门拦截
+    （AC1 的前提：推理审计通过 + 程序比对不成立）。"""
+
+    return (
+        KnowledgeUnit(
+            unit_id="u-001",
+            unit_type="claim",
+            statement="递归的核心结构是函数调用自身并逐步缩小问题规模",
+            source_reference=SourceReference(
+                segment_id=seg_id(1),
+                quoted_text=SEG_TEXTS[0],
+                locator=TimeRangeLocator(start_ms=1000, end_ms=6000),
+            ),
+        ),
+        KnowledgeUnit(
+            unit_id="u-002",
+            unit_type="claim",
+            statement="基准情形在 n 等于一时返回一",
+            source_reference=SourceReference(
+                segment_id=seg_id(2),
+                quoted_text=FAKE_QUOTE_TEXT,
+                locator=TimeRangeLocator(start_ms=7500, end_ms=13200),
+            ),
+        ),
+        KnowledgeUnit(
+            unit_id="u-003",
+            unit_type="conclusion",
+            statement="递归深度必须有限，否则栈会溢出",
+            source_reference=SourceReference(
+                segment_id=seg_id(3),
+                quoted_text=SEG_TEXTS[2],
+                locator=TimeRangeLocator(start_ms=14000, end_ms=18300),
+            ),
+        ),
+    )
+
+
+# 受控 ASS（换行排版）：seg2 文本含字面 \N 换行——解析后 Segment.text
+# 保留换行字符（ass.py 裁定：规范化方式由比对端决定），供忠实性比对
+# 最小规范化容差的受控验证（04 票内裁定的初始算法）。
+ASS_CONTENT_NEWLINE = """[Script Info]
+Title: 受控课程 换行排版
+ScriptType: v4.00+
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour
+Style: Default,Arial,16,&H00FFFFFF
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:01.00,0:00:06.00,Default,,0,0,0,,递归的核心结构是函数调用自身并逐步缩小问题规模
+Dialogue: 0,0:00:07.50,0:00:13.20,Default,,0,0,0,,求解阶乘分两步\\N先写基准情形再递归调用自身
+Dialogue: 0,0:00:14.00,0:00:18.30,Default,,0,0,0,,因此递归深度必须有限否则栈会溢出
+"""
+
+# 解析后 seg2 的原文形态：\\N 成为换行字符（文本本体不变）。
+NEWLINE_SEG2_TEXT = "求解阶乘分两步\n先写基准情形再递归调用自身"
+
+
+@pytest.fixture
+def newline_ass_file(tmp_path: Path) -> Path:
+    corpus_dir = tmp_path / "corpus-newline"
+    corpus_dir.mkdir()
+    f = corpus_dir / "ep01.ass"
+    f.write_text(ASS_CONTENT_NEWLINE, encoding="utf-8")
+    return f
+
+
+def make_units_newline_variants() -> tuple[KnowledgeUnit, ...]:
+    """最小规范化容差的对照单元（锚定换行 seg2）：u-nl-space 的引用
+    文本仅以空格代替原文换行（排版差异，规范化后比对成立）；
+    u-nl-alter 在同样排版之上还改动一个非空白字符（两→三，任何规范化
+    下都不成立）——初始算法"只容忍排版、不容忍内容改动"的受控对照。"""
+
+    return (
+        KnowledgeUnit(
+            unit_id="u-nl-space",
+            unit_type="claim",
+            statement="求解阶乘分两步：先写基准情形再递归调用自身",
+            source_reference=SourceReference(
+                segment_id=seg_id(2),
+                quoted_text="求解阶乘分两步 先写基准情形再递归调用自身",
+                locator=TimeRangeLocator(start_ms=7500, end_ms=13200),
+            ),
+        ),
+        KnowledgeUnit(
+            unit_id="u-nl-alter",
+            unit_type="claim",
+            statement="求解阶乘分三步：先写基准情形再递归调用自身",
+            source_reference=SourceReference(
+                segment_id=seg_id(2),
+                quoted_text="求解阶乘分三步 先写基准情形再递归调用自身",
+                locator=TimeRangeLocator(start_ms=7500, end_ms=13200),
+            ),
+        ),
+    )
+
+
 def seg2_id(n: int) -> str:
     return f"ep02#seg{n:04d}"
 

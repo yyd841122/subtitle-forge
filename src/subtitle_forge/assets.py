@@ -160,11 +160,7 @@ def write_gap_report(dir_root: Path, report: GapReport) -> Path:
     return path
 
 
-def write_run_summary(
-    dir_root: Path,
-    summary: RunSummary,
-    source_units: dict[str, list[KnowledgeUnit]] | None = None,
-) -> Path:
+def write_run_summary(dir_root: Path, summary: RunSummary) -> Path:
     path = dir_root / "run-summary.md"
     sources = [
         {

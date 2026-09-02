@@ -6,14 +6,14 @@
 
 **Blocked by（硬依赖）:** None — can start immediately（Ticket 01 之后即可开始）。
 
-**Status:** open（2026-09-02 materialized）
+**Status:** done (2026-09-02, Codex 独立复审 READY / 0 blocking，closure review READY)
 
 **Materialized from:** plan v2.2 票 02（ADR-0007）
 
 **Acceptance（端到端断言，只对外部产物）:**
-- [ ] 两个 Source，一个 stub module（`StubExtractor.script` 同时含 ep01、ep02 各自的独立脚本条目）→ 退出码 0；`asset_organization` 清单中两个 Source 的忠实层资产各就各位
-- [ ] 每份忠实层资产的 unit_id 集合与该 Source 的脚本精确一致；trusted-set 按 `source_id` 分组后的集合分别与两份脚本一致，条目总数 = 两组之和
-- [ ] run-summary 两个 Source 均 `success`，各自单元状态齐全；gap-report 为空
+- [x] 两个 Source，一个 stub module（`StubExtractor.script` 同时含 ep01、ep02 各自的独立脚本条目）→ 退出码 0；`asset_organization` 清单中两个 Source 的忠实层资产各就各位
+- [x] 每份忠实层资产的 unit_id 集合与该 Source 的脚本精确一致；trusted-set 按 `source_id` 分组后的集合分别与两份脚本一致，条目总数 = 两组之和
+- [x] run-summary 两个 Source 均 `success`，各自单元状态齐全；gap-report 为空
 
 **Implementation / code anchors:** `cli.py` 多 Source 拒绝守卫（Ticket 01 基线 64–73 行）；`assets.write_all` 单 Source 签名（基线 233 行起）；`pipeline.run_corpus` 已按 Source 循环（预计不改）。
 

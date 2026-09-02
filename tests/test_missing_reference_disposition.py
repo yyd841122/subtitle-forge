@@ -195,7 +195,14 @@ class TestMissingReferenceBehavior:
         assert reasons["u-noref"].startswith(MISSING_REFERENCE_REASON_PREFIX)
         assert reasons["u-overreach"] == "受控：断言超出引用支持范围"
 
-        units = {u["unit_id"]: u for u in parse_json_block(asset_dir / "run-summary.md")["sources"][0]["units"]}
+        raw_units = parse_json_block(asset_dir / "run-summary.md")["sources"][0]["units"]
+        # 对账：每个提炼产出的单元在运行摘要中恰有一条记录（先断言列表
+        # 基数与 unit_id 唯一，再转字典——重复下落与静默消失都过不了
+        # 这关，R4.3；转字典本身会掩盖重复记录）。
+        assert len(raw_units) == 3
+        assert len({u["unit_id"] for u in raw_units}) == len(raw_units)
+        assert {u["unit_id"] for u in raw_units} == {"u-fake", "u-noref", "u-overreach"}
+        units = {u["unit_id"]: u for u in raw_units}
         assert {uid: u["status"] for uid, u in units.items()} == {
             "u-fake": "rejected",
             "u-noref": "rejected",

@@ -59,8 +59,17 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     corpus = load_corpus(args.corpus_dir)
-    if not corpus.sources:
+    # Ticket 01 的运行请求形态：恰好一个 Source。批处理（多 Source、
+    # 指定范围）属 02 票——在此之前明确拒绝，不静默选择批处理语义。
+    if len(corpus.sources) == 0:
         print(f"corpus 目录无 .ass Source：{args.corpus_dir}", file=sys.stderr)
+        return 1
+    if len(corpus.sources) > 1:
+        print(
+            f"Ticket 01 仅支持单 Source 运行，发现 {len(corpus.sources)} 个"
+            " .ass Source（多 Source 批处理属 02 票）",
+            file=sys.stderr,
+        )
         return 1
 
     roles = (
@@ -72,16 +81,15 @@ def main(argv: list[str] | None = None) -> int:
 
     # 落盘：按 Source 的忠实层资产 + 全局产物（候选单元取自运行结果，
     # 不对认知角色做二次调用）。
-    for source in corpus.sources:
-        write_all(
-            args.asset_dir,
-            source,
-            list(outcome.source_units.get(source.source_id, ())),
-            outcome.trusted_set,
-            outcome.gap_report,
-            outcome.run_summary,
-            with_global=source is corpus.sources[-1],
-        )
+    source = corpus.sources[0]
+    write_all(
+        args.asset_dir,
+        source,
+        list(outcome.source_units.get(source.source_id, ())),
+        outcome.trusted_set,
+        outcome.gap_report,
+        outcome.run_summary,
+    )
     print(
         f"运行完成：{len(corpus.sources)} 个 Source，"
         f"发布集 {len(outcome.trusted_set.entries)} 单元"

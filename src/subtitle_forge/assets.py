@@ -21,7 +21,18 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .artifacts import GapReport, RunSummary, TrustedSet
+from .artifacts import (
+    SOURCE_STATUS_FAILED,
+    SOURCE_STATUS_NEEDS_REVIEW,
+    SOURCE_STATUS_SUCCESS,
+    UNIT_STATUS_FAILED,
+    UNIT_STATUS_NEEDS_REVIEW,
+    UNIT_STATUS_PASSED,
+    UNIT_STATUS_REJECTED,
+    GapReport,
+    RunSummary,
+    TrustedSet,
+)
 from .model import KnowledgeUnit, Source
 
 
@@ -160,6 +171,9 @@ def write_run_summary(dir_root: Path, summary: RunSummary) -> Path:
                 {"unit_id": u.unit_id, "status": u.status, "reason": u.reason}
                 for u in r.units
             ],
+            "coverage_audit": None
+            if r.coverage is None
+            else {"covered": r.coverage.covered, "reason": r.coverage.reason},
         }
         for r in summary.sources
     ]
@@ -168,7 +182,24 @@ def write_run_summary(dir_root: Path, summary: RunSummary) -> Path:
         "",
         "一次运行的全量去向对账：每个 Source 与每个知识单元均有实体状态，无静默消失。",
         "",
-        _fence({"sources": sources, "role_call_counts": summary.role_call_counts}),
+        _fence(
+            {
+                # 状态枚举自描述（外部产物的可观察 schema，仿缺口报告的
+                # categories 先例）：Source 级与 Knowledge Unit 级取值域。
+                "source_status_values": [
+                    SOURCE_STATUS_SUCCESS,
+                    SOURCE_STATUS_FAILED,
+                    SOURCE_STATUS_NEEDS_REVIEW,
+                ],
+                "unit_status_values": [
+                    UNIT_STATUS_PASSED,
+                    UNIT_STATUS_REJECTED,
+                    UNIT_STATUS_NEEDS_REVIEW,
+                    UNIT_STATUS_FAILED,
+                ],
+                "sources": sources,
+            }
+        ),
         "",
         f"run-metadata: wall_time_ms={summary.wall_time_ms}",
         "",
@@ -184,19 +215,16 @@ def write_all(
     trusted: TrustedSet,
     gaps: GapReport,
     summary: RunSummary,
-    with_global: bool = True,
 ) -> list[Path]:
-    """落盘一个 Source 的资产；``with_global`` 时同时写全 Corpus 的全局产物
-    （可信发布集/缺口报告/运行摘要——含空但结构完整的审查层/衍生层
-    占位目录）。单 Source 形态下每 Source 都写全局产物亦无害（幂等）。"""
+    """落盘全部产物：该 Source 的忠实层资产 + 全局产物（可信发布集/
+    缺口报告/运行摘要），含空但结构完整的审查层/衍生层占位目录。"""
 
     written = [write_source_asset(dir_root, source, units)]
     (dir_root / "review").mkdir(parents=True, exist_ok=True)
     (dir_root / "derived").mkdir(parents=True, exist_ok=True)
     (dir_root / "review" / ".gitkeep").write_text("", encoding="utf-8")
     (dir_root / "derived" / ".gitkeep").write_text("", encoding="utf-8")
-    if with_global:
-        written.append(write_trusted_set(dir_root, trusted))
-        written.append(write_gap_report(dir_root, gaps))
-        written.append(write_run_summary(dir_root, summary))
+    written.append(write_trusted_set(dir_root, trusted))
+    written.append(write_gap_report(dir_root, gaps))
+    written.append(write_run_summary(dir_root, summary))
     return written

@@ -21,8 +21,8 @@ Ticket 01 对五项 Open Implementation Decisions 作初始裁定。除规范源
 **决策：认知角色以 Protocol 接口（提炼 `ExtractionRole` / 推理审计 `InferenceAuditRole` / 覆盖审计 `CoverageAuditRole`）定义；确定性替身（`StubExtractor` 等）与真实模型实现同一接口，经 `CognitiveRoles` 组合注入，按角色独立替换。**
 
 - 替身行为是纯数据脚本（按 source_id / unit_id 预设），测试对每个角色分别设定行为。
-- `StubExtractor.fail_on_unscripted`：脚本外 Source 被调用即抛错——供 11 票"不重复处理"oracle 复用。
-- 角色调用按角色名计量（运行摘要 `role_call_counts`）——12 票计量契约的最小雏形，替身与真实调用共用同一语义。
+- `StubExtractor.fail_on_unscripted`：脚本外 Source 被调用即抛错——测试脚本与实际输入的错配守卫，防止替身静默产出空结果造成"看似通过"的假运行。
+- 角色行为的可观察性全部经外部产物：提炼 → 可信发布集内容；推理审计的通过理由 → 运行摘要单元记录；覆盖审计结论 → 运行摘要 coverage_audit 字段。角色计量（调用次数/用量/成本）归 12 票的计量契约，本票不预建。
 
 ## 4. 知识单元 schema 与 Source Reference locator（Open Impl 15）
 
@@ -52,4 +52,5 @@ Ticket 01 对五项 Open Implementation Decisions 作初始裁定。除规范源
 
 - 15 票：规范源格式最终裁定（可迁移本条 5）。
 - 03/04 票：非通过结论与无引用单元的下落语义（本票以 fail-loud 挡板划界，不产出语义错误的半成品产物）。
-- 12 票：角色计量契约展开（本票 role_call_counts 为雏形）。
+- 12 票：角色计量契约（本票不预建 role_call_counts 之类结构）。
+- 02 票：多 Source 批处理与运行范围（CLI 当前明确拒绝多 Source 输入，批处理语义到该票再裁定）。

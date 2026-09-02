@@ -95,13 +95,6 @@ class CognitiveRoles:
     coverage_auditor: CoverageAuditRole
 
 
-# 角色名（计量、替身注入按认知角色独立可控的键）。
-ROLE_EXTRACTOR = "extractor"
-ROLE_INFERENCE_AUDITOR = "inference_auditor"
-ROLE_COVERAGE_AUDITOR = "coverage_auditor"
-ROLE_NAMES = (ROLE_EXTRACTOR, ROLE_INFERENCE_AUDITOR, ROLE_COVERAGE_AUDITOR)
-
-
 # ---------------------------------------------------------------------------
 # 确定性替身
 # ---------------------------------------------------------------------------
@@ -118,8 +111,8 @@ class StubExtractor:
     # source_id → 该 Source 应产出的候选单元序列。
     script: dict[str, tuple[KnowledgeUnit, ...]]
     coverage_self_check: str | None = None
-    # 若被意外调用（脚本中无该 source_id）即抛错——供"不重复处理"类
-    # 外部 oracle 使用（11 票），也避免测试脚本与实际输入静默错配。
+    # 脚本外 Source 被调用即抛错——测试脚本与实际输入的错配守卫，
+    # 防止替身静默产出空结果造成"看似通过"的假运行。
     fail_on_unscripted: bool = True
 
     def extract(self, source: Source) -> ExtractionOutput:

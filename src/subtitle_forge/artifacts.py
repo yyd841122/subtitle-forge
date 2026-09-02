@@ -9,9 +9,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from .model import KnowledgeUnit, Source
+from .roles import CoverageVerdict
 
 # ---------------------------------------------------------------------------
 # 枚举（值域来自 CONTEXT.md / R4.6，只定义可观察语义）
@@ -113,12 +114,18 @@ class UnitRecord:
 
 @dataclass(frozen=True)
 class SourceRecord:
-    """运行摘要中一个 Source 的去向记录（实体状态 + 其单元的下落）。"""
+    """运行摘要中一个 Source 的去向记录（实体状态 + 其单元的下落）。
+
+    ``coverage``：覆盖审计结论（独立审查环节，裁决 3）在运行摘要中的
+    可观察通道——本票（01）记录其结论与理由；覆盖存疑的缺口条目与
+    指标成对归 08 票。
+    """
 
     source_id: str
     status: str  # SOURCE_STATUS_* 之一
     reason: str = ""
     units: tuple[UnitRecord, ...] = ()
+    coverage: CoverageVerdict | None = None
 
 
 @dataclass(frozen=True)
@@ -127,13 +134,10 @@ class RunSummary:
 
     对账作用域：本次运行涉及的 Corpus 全量 Source 与其全部知识单元
     （05 票把作用域升级为"当前资产版本内全量实体"），无静默消失；
-    成本与耗时的可观察记录是其组成部分（12 票展开计量契约，本票骨架
-    记录最小运行元数据：各认知角色的调用次数）。
+    成本与耗时的可观察记录是其组成部分（12 票展开计量契约）。
     """
 
     sources: tuple[SourceRecord, ...] = ()
-    # 运行元数据（不进入产物内容比对的字段由落盘层排除或由调用方注入）。
-    role_call_counts: dict = field(default_factory=dict)
     wall_time_ms: int | None = None
 
     def unit_count(self) -> int:

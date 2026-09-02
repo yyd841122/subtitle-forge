@@ -6,14 +6,14 @@
 
 **Blocked by（硬依赖）:** None（与 02 可并行）。
 
-**Status:** open（2026-09-02 materialized）
+**Status:** done (2026-09-02, Codex 独立复审 READY WITH NON-BLOCKING → closure review READY / 0 blocking)
 
 **Materialized from:** plan v2.2 票 03（ADR-0007）
 
 **Acceptance（端到端断言，只对外部产物）:**
-- [ ] fixture 按 A2 场景构造——单元带真实存在于原文的引用 + 明显越界的陈述（如引用只讲基准情形、断言却推广到全部递归），推理审查替身因此对该 unit_id 预设 `reject` + 理由 → 发布集无该单元
-- [ ] gap-report 含 `{category: audit_rejection, source_id, subject: unit_id, reason, outcome}`
-- [ ] run-summary 该单元 `rejected`；Source `success`；同 Source 其余单元不受影响
+- [x] fixture 按 A2 场景构造——单元带真实存在于原文的引用 + 明显越界的陈述（如引用只讲基准情形、断言却推广到全部递归），推理审查替身因此对该 unit_id 预设 `reject` + 理由 → 发布集无该单元
+- [x] gap-report 含 `{category: audit_rejection, source_id, subject: unit_id, reason, outcome}`
+- [x] run-summary 该单元 `rejected`；Source `success`；同 Source 其余单元不受影响
 
 **Implementation / code anchors:** `pipeline.py`（Ticket 01 基线 94–97 行，`verdict != "pass"` 的 `OutOfScopeVerdictError` 分支）；`StubInferenceAuditor` 已支持按 unit 预设结论。
 

@@ -24,6 +24,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from .artifacts import (
+    GAP_CATEGORIES,
     SOURCE_STATUS_FAILED,
     SOURCE_STATUS_NEEDS_REVIEW,
     SOURCE_STATUS_SUCCESS,
@@ -147,12 +148,9 @@ def write_gap_report(dir_root: Path, report: GapReport) -> Path:
         "",
         _fence(
             {
-                "categories": [
-                    "execution_failure",
-                    "audit_rejection",
-                    "coverage_concern",
-                    "warning",
-                ],
+                # 类别清单来自 artifacts 的唯一常量（GAP_CATEGORIES），
+                # 与缺口类别值域同源，不另行硬编码。
+                "categories": list(GAP_CATEGORIES),
                 "entries": entries,
             }
         ),

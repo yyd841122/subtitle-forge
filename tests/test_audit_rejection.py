@@ -144,6 +144,36 @@ class TestAuditRejectionAcceptance:
         assert src["status"] == "success"
         assert all(u["status"] == "rejected" for u in src["units"])
 
+    def test_reject_takes_precedence_over_missing_reference(self, tmp_path, ass_file):
+        """票内裁定（优先序）：被拒且无引用的单元走拒绝下落——审计拒绝
+        本身是完整下落（不进发布集 + 留痕，R2.4 已满足），不因缺引用再
+        挡板；missing_source_reference 挡板只守"通过"路径。"""
+
+        no_ref_unit = KnowledgeUnit(
+            unit_id="u-noref-rejected",
+            unit_type="claim",
+            statement="基准情形使递归终止",
+            source_reference=None,
+        )
+        roles = CognitiveRoles(
+            extractor=StubExtractor(script={"ep01": (no_ref_unit,)}),
+            inference_auditor=StubInferenceAuditor(
+                verdicts={
+                    "u-noref-rejected": UnitAuditVerdict(verdict="reject", reason="受控：拒绝无引用单元")
+                }
+            ),
+            coverage_auditor=StubCoverageAuditor(),
+        )
+        asset_dir = run_and_write(tmp_path, ass_file, roles)
+
+        assert parse_json_block(asset_dir / "trusted-set.md")["entries"] == []
+        entries = parse_json_block(asset_dir / "gap-report.md")["entries"]
+        assert [e["subject"] for e in entries] == ["u-noref-rejected"]
+        assert entries[0]["category"] == "audit_rejection"
+        src = parse_json_block(asset_dir / "run-summary.md")["sources"][0]
+        assert src["status"] == "success"
+        assert src["units"][0]["status"] == "rejected"
+
 
 # ---------------------------------------------------------------------------
 # 触界行为（明确不含，fail loud——不得提前实现或弱化）
@@ -151,6 +181,26 @@ class TestAuditRejectionAcceptance:
 
 
 class TestAuditRejectionBoundaries:
+    def test_reject_without_reason_fails_loud(self, tmp_path, ass_file):
+        """A11 守卫：拒绝结论不带理由 → 缺口条目将缺"原因"，属角色契约
+        破坏，fail loud（不产出语义不完整的条目）。"""
+
+        roles = CognitiveRoles(
+            extractor=StubExtractor(script={"ep01": make_units_with_time_range()[:1]}),
+            inference_auditor=StubInferenceAuditor(
+                verdicts={"u-001": UnitAuditVerdict(verdict="reject", reason="")}
+            ),
+            coverage_auditor=StubCoverageAuditor(),
+        )
+        mod = types.ModuleType("silent_reject_stub_roles")
+        mod.stub_roles = lambda: roles  # type: ignore[attr-defined]
+        sys.modules["silent_reject_stub_roles"] = mod
+        from subtitle_forge.cli import main
+
+        with pytest.raises(ValueError, match="u-001.*缺少理由"):
+            main(["run", str(ass_file.parent), str(tmp_path / "assets"),
+                  "--stub-module", "silent_reject_stub_roles"])
+
     def test_inconclusive_still_fails_loud(self, tmp_path, ass_file):
         """待复核（inconclusive）语义不属本票（05 票）：替身返回不确定
         结论 → 显式挡板抛错，不得静默处置。"""

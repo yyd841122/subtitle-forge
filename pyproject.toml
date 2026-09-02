@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "subtitle-forge"
+version = "0.1.0"
+description = "AI 原生的批量知识提炼引擎：把字幕与转写文本提炼成知识资产"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+subtitle-forge = "subtitle_forge.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

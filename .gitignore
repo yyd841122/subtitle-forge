@@ -41,3 +41,9 @@ CLAUDE.local.md
 # Local runtime logs
 error.log
 *.log
+
+# Python — Ticket 01 (ADR-0006)
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/

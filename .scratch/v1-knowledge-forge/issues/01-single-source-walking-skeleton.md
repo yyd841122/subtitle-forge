@@ -6,7 +6,7 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** done (2026-09-02, Codex 独立复审 0 blocking)
 
 - [ ] 单 Source 端到端：ASS 输入 → 解析 → 提炼替身产出知识单元（带 Source Reference）→ 审查替身判定"通过"→ 该单元出现在可信发布集中，运行后可指认
 - [ ] Source Reference 由"原文文本片段 + 定位信息"构成；V1 的 ASS 实例使用时间区间作为定位信息，但定位信息的表达不把时间区间设为必填——结构上保留非时间定位类型（如文本位置）的表达空间（R1.4 未来兼容约束，Q26）

@@ -26,7 +26,6 @@ from conftest import (
 )
 
 from subtitle_forge.model import KnowledgeUnit
-from subtitle_forge.pipeline import InvalidAuditVerdictError
 from subtitle_forge.roles import (
     CognitiveRoles,
     StubCoverageAuditor,
@@ -239,11 +238,14 @@ class TestNeedsReviewBehavior:
 
 class TestNeedsReviewBoundaries:
     def test_inconclusive_without_reason_fails_loud(self, tmp_path, ass_file):
-        """A14/R4.4 守卫：不确定结论不带可读理由（空或纯空白）→ 运行摘要
-        将无法记录明确理由（且理由必须来自替身结论，不容系统兜底措辞），
-        属角色契约破坏，fail loud——与 03 票拒绝缺理由守卫对称。"""
+        """A14/R4.4 守卫（07 票隔离后的可观察形态）：不确定结论不带可读
+        理由（空或纯空白）→ 该 Source 的处理抛错（角色契约破坏；理由
+        只能来自替身结论，不容系统兜底措辞），Source failed +
+        execution_failure 条目（原因含守卫信息）、退出码 1；守卫不变量
+        仍绝对成立——不产出无理由的 needs_review 记录（该单元无任何
+        下落）。与 03 票拒绝缺理由守卫对称。"""
 
-        for blank_reason in ("", "   "):
+        for i, blank_reason in enumerate(("", "   ")):
             roles = CognitiveRoles(
                 extractor=StubExtractor(script={"ep01": make_units_with_time_range()[:1]}),
                 inference_auditor=StubInferenceAuditor(
@@ -251,20 +253,31 @@ class TestNeedsReviewBoundaries:
                 ),
                 coverage_auditor=StubCoverageAuditor(),
             )
-            with pytest.raises(ValueError, match="u-001.*缺少理由"):
-                run_cli(
-                    ass_file,
-                    tmp_path / "assets",
-                    roles,
-                    module_name="silent_inconclusive_stub_roles",
-                )
+            asset_dir = tmp_path / f"assets-{i}"
+            rc = run_cli(
+                ass_file, asset_dir, roles, module_name="silent_inconclusive_stub_roles"
+            )
+            assert rc == 1  # 部分失败（07 票退出码契约）
+
+            src = parse_json_block(asset_dir / "run-summary.md")["sources"][0]
+            assert src["status"] == "failed"
+            assert src["units"] == []  # 无任何单元下落记录（不作兜底处置）
+            assert "缺少理由" in src["reason"]
+
+            entries = parse_json_block(asset_dir / "gap-report.md")["entries"]
+            assert [(e["category"], e["subject"]) for e in entries] == [
+                ("execution_failure", "ep01")
+            ]
+            assert "缺少理由" in entries[0]["reason"]
 
     @pytest.mark.parametrize("bad_verdict", ["maybe", "low_confidence"])
     def test_unknown_verdict_fails_loud(self, tmp_path, ass_file, bad_verdict):
-        """结论值域守卫：pass/reject/inconclusive 之外的结论值（替身契约
-        破坏）→ 显式挡板抛错，不得静默当作任何已知下落处置。含
-        low_confidence：R3.8——"低可信"只是风险信号，不是结论值、更
-        不是实体状态，冒充结论值即契约破坏。"""
+        """结论值域守卫（07 票隔离后的可观察形态）：pass/reject/
+        inconclusive 之外的结论值（替身契约破坏）→ 该 Source 的处理
+        抛错，Source failed + execution_failure 条目（原因含值域外
+        结论值），不静默当作任何已知下落处置。含 low_confidence：
+        R3.8——"低可信"只是风险信号，不是结论值、更不是实体状态，
+        冒充结论值即契约破坏。"""
 
         roles = CognitiveRoles(
             extractor=StubExtractor(script={"ep01": make_units_with_time_range()[:1]}),
@@ -273,8 +286,17 @@ class TestNeedsReviewBoundaries:
             ),
             coverage_auditor=StubCoverageAuditor(),
         )
-        with pytest.raises(InvalidAuditVerdictError, match=f"u-001.*{bad_verdict}"):
-            run_cli(ass_file, tmp_path / "assets", roles, module_name="unknown_verdict_stub_roles")
+        asset_dir = tmp_path / f"assets-{bad_verdict}"
+        rc = run_cli(ass_file, asset_dir, roles, module_name="unknown_verdict_stub_roles")
+
+        assert rc == 1  # 部分失败（07 票退出码契约）
+        src = parse_json_block(asset_dir / "run-summary.md")["sources"][0]
+        assert src["status"] == "failed"
+        assert f"{bad_verdict!r}" in src["reason"]
+
+        entries = parse_json_block(asset_dir / "gap-report.md")["entries"]
+        assert [e["category"] for e in entries] == ["execution_failure"]
+        assert f"{bad_verdict!r}" in entries[0]["reason"]
 
     def test_inconclusive_takes_precedence_over_missing_reference(self, tmp_path, ass_file):
         """票内裁定（优先序，与 03 票拒绝先例一致）：待复核是完整下落

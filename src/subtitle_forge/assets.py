@@ -180,7 +180,9 @@ def write_run_summary(dir_root: Path, summary: RunSummary) -> Path:
     lines = [
         "# 运行摘要（Run Summary）",
         "",
-        "一次运行的全量去向对账：每个 Source 与每个知识单元均有实体状态，无静默消失。",
+        "一次运行的全量去向对账：每个 Source 均有实体状态、无静默消失；"
+        "完成处理的 Source 的每个知识单元均有下落（失败 Source 由缺口"
+        "报告的 execution_failure 条目对账，07 票）。",
         "",
         _fence(
             {
@@ -238,17 +240,35 @@ def write_all(
     gaps: GapReport,
     summary: RunSummary,
 ) -> list[Path]:
-    """落盘全部产物：每个 Source 的忠实层资产（R6.4：资产与 Source 明确
-    对应）+ 全局产物（可信发布集/缺口报告/运行摘要），含空但结构完整的
-    审查层/衍生层占位目录。
+    """落盘全部产物：每个完成处理的 Source 的忠实层资产（R6.4：资产与
+    Source 明确对应）+ 全局产物（可信发布集/缺口报告/运行摘要），含空但
+    结构完整的审查层/衍生层占位目录。
 
-    ``source_units`` 与 ``sources`` 一一对应（管线保证每个处理的 Source
-    都有条目）；缺失即内部不变量破坏，直接失败（fail loud，不静默产出
-    空资产）。
+    失败 Source 不写忠实层资产（07 票票内裁定）：忠实层语义是提炼产物，
+    为失败 Source 写空资产会与「提炼完成但产出为空」不可辨；其下落由
+    运行摘要（failed + reason）与缺口报告（execution_failure）承载。
+    是否失败从运行摘要（对账载体，裁决 6）判读；同目录复用时，失败
+    Source 留下的旧忠实层产物一并移除（见循环内注释）。
+
+    其余 Source 的 ``source_units`` 条目与 ``sources`` 一一对应（管线
+    保证每个完成处理的 Source 都有条目）；缺失即内部不变量破坏，直接
+    失败（fail loud，不静默产出空资产）。
     """
 
+    failed_ids = {
+        r.source_id for r in summary.sources if r.status == SOURCE_STATUS_FAILED
+    }
     written: list[Path] = []
     for source in sources:
+        if source.source_id in failed_ids:
+            # 失败 Source：无忠实层产物（07 票）；若资产目录中留有更早
+            # 运行的旧产物则一并移除——运行摘要的 asset_organization 按
+            # 目录现状生成，旧文件会把 failed Source 误宣告为已产出
+            # （失败被误认为已完成，R5.4 的精神）。跨运行的全量一致性
+            # （输入变化、版本混杂）属后续票，此处只保证本票不变量。
+            stale = dir_root / "sources" / source.source_id / "knowledge-units.md"
+            stale.unlink(missing_ok=True)
+            continue
         units = source_units[source.source_id]
         written.append(write_source_asset(dir_root, source, units))
     (dir_root / "review").mkdir(parents=True, exist_ok=True)

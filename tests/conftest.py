@@ -132,6 +132,43 @@ def two_source_corpus(tmp_path: Path) -> Path:
     return corpus_dir
 
 
+# 受控课程 03 的 ASS 内容（与 ep01/ep02 主题互异：二分查找）。三 Source
+# 批处理「失败隔离」的受控输入（票 07：中间 Source 抛错，前后 Source
+# 照常完成的对照形态）。
+ASS_CONTENT_EP03 = """[Script Info]
+Title: 受控课程 03
+ScriptType: v4.00+
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour
+Style: Default,Arial,16,&H00FFFFFF
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:01.00,0:00:05.00,Default,,0,0,0,,二分查找要求数据有序并在每次比较后排除一半候选
+Dialogue: 0,0:00:06.00,0:00:10.50,Default,,0,0,0,,对数复杂度使二分查找在大规模有序数据上远快于线性扫描
+Dialogue: 0,0:00:11.00,0:00:15.00,Default,,0,0,0,,因此有序数据上的查找应优先考虑二分策略
+"""
+
+EP03_SEG_TEXTS = [
+    "二分查找要求数据有序并在每次比较后排除一半候选",
+    "对数复杂度使二分查找在大规模有序数据上远快于线性扫描",
+    "因此有序数据上的查找应优先考虑二分策略",
+]
+
+
+@pytest.fixture
+def three_source_corpus(tmp_path: Path) -> Path:
+    """三 Source 的 Corpus 目录（ep01 + ep02 + ep03；文件名序确定）。"""
+
+    corpus_dir = tmp_path / "corpus"
+    corpus_dir.mkdir()
+    (corpus_dir / "ep01.ass").write_text(ASS_CONTENT, encoding="utf-8")
+    (corpus_dir / "ep02.ass").write_text(ASS_CONTENT_EP02, encoding="utf-8")
+    (corpus_dir / "ep03.ass").write_text(ASS_CONTENT_EP03, encoding="utf-8")
+    return corpus_dir
+
+
 def seg_id(n: int) -> str:
     return f"ep01#seg{n:04d}"
 
@@ -436,6 +473,48 @@ def make_units_newline_variants() -> tuple[KnowledgeUnit, ...]:
 
 def seg2_id(n: int) -> str:
     return f"ep02#seg{n:04d}"
+
+
+def make_ep03_units() -> tuple[KnowledgeUnit, ...]:
+    """ep03 的三个知识单元：claim / explanation / conclusion，全部锚定
+    ep03 自己的 Segment——三 Source 批处理的第三组互不重叠单元（票 07）。"""
+
+    return (
+        KnowledgeUnit(
+            unit_id="u-201",
+            unit_type="claim",
+            statement="二分查找要求数据有序，每次比较排除一半候选",
+            source_reference=SourceReference(
+                segment_id=seg3_id(1),
+                quoted_text=EP03_SEG_TEXTS[0],
+                locator=TimeRangeLocator(start_ms=1000, end_ms=5000),
+            ),
+        ),
+        KnowledgeUnit(
+            unit_id="u-202",
+            unit_type="explanation",
+            statement="对数复杂度使二分查找在大规模有序数据上远快于线性扫描",
+            source_reference=SourceReference(
+                segment_id=seg3_id(2),
+                quoted_text=EP03_SEG_TEXTS[1],
+                locator=TimeRangeLocator(start_ms=6000, end_ms=10500),
+            ),
+        ),
+        KnowledgeUnit(
+            unit_id="u-203",
+            unit_type="conclusion",
+            statement="有序数据上的查找应优先考虑二分策略",
+            source_reference=SourceReference(
+                segment_id=seg3_id(3),
+                quoted_text=EP03_SEG_TEXTS[2],
+                locator=TimeRangeLocator(start_ms=11000, end_ms=15000),
+            ),
+        ),
+    )
+
+
+def seg3_id(n: int) -> str:
+    return f"ep03#seg{n:04d}"
 
 
 def make_ep02_units() -> tuple[KnowledgeUnit, ...]:

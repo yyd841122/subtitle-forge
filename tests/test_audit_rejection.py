@@ -13,8 +13,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from conftest import (
     make_units_a2_overreach,
     make_units_with_time_range,
@@ -183,10 +181,13 @@ class TestAuditRejectionAcceptance:
 
 class TestAuditRejectionBoundaries:
     def test_reject_without_reason_fails_loud(self, tmp_path, ass_file):
-        """A11 守卫：拒绝结论不带可读理由（空或纯空白）→ 缺口条目将缺
-        "原因"，属角色契约破坏，fail loud（不产出语义不完整的条目）。"""
+        """A11 守卫（07 票隔离后的可观察形态）：拒绝结论不带可读理由
+        （空或纯空白）→ 该 Source 的处理抛错（角色契约破坏），Source
+        failed + execution_failure 条目（原因含守卫信息）、退出码 1；
+        守卫不变量仍绝对成立——不产出缺原因的半成品拒绝条目（缺口
+        报告无 audit_rejection 条目，该单元无任何下落）。"""
 
-        for blank_reason in ("", "   "):
+        for i, blank_reason in enumerate(("", "   ")):
             roles = CognitiveRoles(
                 extractor=StubExtractor(script={"ep01": make_units_with_time_range()[:1]}),
                 inference_auditor=StubInferenceAuditor(
@@ -194,10 +195,24 @@ class TestAuditRejectionBoundaries:
                 ),
                 coverage_auditor=StubCoverageAuditor(),
             )
-            with pytest.raises(ValueError, match="u-001.*缺少理由"):
-                run_cli_with_roles(
-                    ass_file, tmp_path / "assets", roles, "silent_reject_stub_roles"
-                )
+            asset_dir = tmp_path / f"assets-{i}"
+            rc = run_cli_with_roles(
+                ass_file, asset_dir, roles, "silent_reject_stub_roles"
+            )
+            assert rc == 1  # 部分失败（07 票退出码契约）
+
+            src = parse_json_block(asset_dir / "run-summary.md")["sources"][0]
+            assert src["status"] == "failed"
+            assert src["units"] == []  # 无任何单元下落记录（不作缺理由处置）
+            assert "缺少理由" in src["reason"]
+
+            entries = parse_json_block(asset_dir / "gap-report.md")["entries"]
+            assert [(e["category"], e["subject"]) for e in entries] == [
+                ("execution_failure", "ep01")
+            ]
+            assert "缺少理由" in entries[0]["reason"]
+
+            assert parse_json_block(asset_dir / "trusted-set.md")["entries"] == []
 
     def test_inconclusive_not_recorded_as_audit_rejection(self, tmp_path, ass_file):
         """触界（05 票语义落地后的 03 界线）：不确定结论的单元走待复核

@@ -12,8 +12,6 @@ import sys
 import types
 from pathlib import Path
 
-import pytest
-
 from conftest import make_ep02_units, make_units_with_time_range, parse_json_block
 
 from subtitle_forge.roles import (
@@ -128,25 +126,19 @@ class TestCorpusBatchAcceptance:
 
 
 class TestBatchBoundaries:
-    def test_any_source_failure_fails_whole_run(self, two_source_corpus, tmp_path):
-        """无失败隔离：任一 Source 异常仍使整次运行失败（fail loud，
-        隔离归 07 票）。替身脚本缺 ep02 → 提炼替身抛错且异常传播。"""
-
-        partial = CognitiveRoles(
-            extractor=StubExtractor(script={"ep01": make_units_with_time_range()}),
-            inference_auditor=StubInferenceAuditor(),
-            coverage_auditor=StubCoverageAuditor(),
-        )
-        # 匹配 unscripted ep02 的具体错误，防止无关断言失败误判为通过
-        with pytest.raises(AssertionError, match="ep02"):
-            run_batch(two_source_corpus, tmp_path, partial)
-
     def test_empty_corpus_still_rejected(self, tmp_path):
-        """空 Corpus 仍明确拒绝（维持现状，不在本票改变）。"""
+        """空 Corpus 仍明确拒绝（语义不变；退出码并入 07 票的全局中止族：
+        运行未开始，与「运行完成但部分失败」的退出码 1 机器可辨）。"""
 
         empty_dir = tmp_path / "empty-corpus"
         empty_dir.mkdir()
         from subtitle_forge.cli import main
 
         rc = main(["run", str(empty_dir), str(tmp_path / "assets")])
-        assert rc == 1
+        assert rc == 3
+
+
+# 02 票触界测试 test_any_source_failure_fails_whole_run（无失败隔离：
+# 任一 Source 异常使整次运行失败）随 07 票失败隔离落地退役——隔离
+# 语义（该 Source failed、其余照常、退出码 1）由
+# test_source_failure_isolation.py 全面验收。

@@ -239,8 +239,9 @@ def run_corpus(corpus: Corpus, roles: CognitiveRoles) -> RunOutcome:
 
             if verdict.verdict != "pass":
                 # 结论值域守卫（fail loud）：pass/reject/inconclusive 之外
-                # 的结论值是角色契约破坏，不得静默当作任何已知下落处置。
-                raise OutOfScopeVerdictError(unit.unit_id, verdict.verdict)
+                # 的结论值是角色契约破坏（"低可信"只是风险信号，不是
+                # 结论值，R3.8），不得静默当作任何已知下落处置。
+                raise InvalidAuditVerdictError(unit.unit_id, verdict.verdict)
             if unit.source_reference is None:
                 # R2.4：无有效 Source Reference 不得进入发布集，且须有
                 # 显性下落——该下落的完整语义（R2.4、A17）由后续票落地。
@@ -306,15 +307,22 @@ def run_corpus(corpus: Corpus, roles: CognitiveRoles) -> RunOutcome:
 
 class OutOfScopeVerdictError(NotImplementedError):
     """仍未实现下落路径的显式挡板（fail loud，不静默降级）：无引用单元
-    （R2.4，06 票）与结论值域外的结论值（角色契约破坏——"低可信"只是
-    风险信号、不是结论值或状态，R3.8）。"""
+    （R2.4，06 票）——"未建成"的能力边界。"""
 
     def __init__(self, unit_id: str, verdict: str):
-        if verdict == "missing_source_reference":
-            detail = "无引用（R2.4）单元的完整下落语义由后续票落地"
-        else:
-            detail = (
-                f"结论值 {verdict!r} 不在推理审计结论值域"
-                "（pass / reject / inconclusive）内"
-            )
-        super().__init__(f"知识单元 {unit_id!r} 走入未实现的下落路径（{verdict!r}）：{detail}")
+        super().__init__(
+            f"知识单元 {unit_id!r} 走入未实现的下落路径（{verdict!r}）："
+            "无引用（R2.4）单元的完整下落语义由后续票落地"
+        )
+
+
+class InvalidAuditVerdictError(ValueError):
+    """推理审计结论值域守卫（05 票，fail loud）：pass / reject /
+    inconclusive 之外的结论值是**角色契约破坏**（与缺理由守卫同族），
+    不是"未建成"——"低可信"只是风险信号，不是结论值或状态（R3.8）。"""
+
+    def __init__(self, unit_id: str, verdict: str):
+        super().__init__(
+            f"推理审计对知识单元 {unit_id!r} 返回值域外的结论 {verdict!r}："
+            "结论值只能是 pass / reject / inconclusive"
+        )

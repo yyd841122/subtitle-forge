@@ -23,7 +23,7 @@ import pytest
 from conftest import make_units_a14_inconclusive, make_units_with_time_range, parse_json_block
 
 from subtitle_forge.model import KnowledgeUnit
-from subtitle_forge.pipeline import OutOfScopeVerdictError
+from subtitle_forge.pipeline import InvalidAuditVerdictError, OutOfScopeVerdictError
 from subtitle_forge.roles import (
     CognitiveRoles,
     StubCoverageAuditor,
@@ -276,7 +276,7 @@ class TestNeedsReviewBoundaries:
             ),
             coverage_auditor=StubCoverageAuditor(),
         )
-        with pytest.raises(OutOfScopeVerdictError, match=f"u-001.*{bad_verdict}"):
+        with pytest.raises(InvalidAuditVerdictError, match=f"u-001.*{bad_verdict}"):
             run_cli(ass_file, tmp_path / "assets", roles, module_name="unknown_verdict_stub_roles")
 
     def test_inconclusive_takes_precedence_over_missing_reference(self, tmp_path, ass_file):

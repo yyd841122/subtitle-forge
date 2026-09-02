@@ -6,14 +6,14 @@
 
 **Blocked by（硬依赖）:** 03。
 
-**Status:** in_progress（2026-09-02 开工，票内裁定已落，见文末裁定记录）
+**Status:** done (2026-09-02, Codex 独立复审 READY WITH NON-BLOCKING（0 blocking）→ closure review READY / 0 blocking)
 
 **Materialized from:** plan v2.2 票 06（ADR-0007）
 
 **Acceptance（端到端断言，只对外部产物）:**
-- [ ] 替身产出无引用单元（其余正常）→ 该单元不在发布集
-- [ ] run-summary 有其记录（状态可辨、reason 提「无来源引用」）
-- [ ] gap-report 有指向它的条目；Source 的最终状态与 A4 语义一致（单元有下落即不妨碍 success——若票内裁定不同须记录理由）
+- [x] 替身产出无引用单元（其余正常）→ 该单元不在发布集
+- [x] run-summary 有其记录（状态可辨、reason 提「无来源引用」）
+- [x] gap-report 有指向它的条目；Source 的最终状态与 A4 语义一致（单元有下落即不妨碍 success——若票内裁定不同须记录理由）
 
 **Implementation / code anchors:** `pipeline.py`（Ticket 01 基线 98–101 行，`source_reference is None` 的挡板）；`model.KnowledgeUnit.source_reference` 本就可为 `None`。
 
@@ -45,3 +45,23 @@
 >   忠实性程序门以各自拒绝理由处置——两类下落以 reason 前缀可辨。
 >   **locator 校验不展开**（不实现 locator 有效性判定，留给未来的有效性
 >   分级工作）。
+
+> 完成记录（2026-09-02 done）：
+> - 实现：`pipeline.py` 无引用门（通过路径，`_reject_unit` 统一机制，
+>   reason 稳定前缀「无来源引用」）；`OutOfScopeVerdictError` 挡板随
+>   下落语义落地退役（无残留引用）；03/05 票的优先序裁定不变（verdict
+>   处置先行），04 票界线测试改写为门间界线断言。
+> - 测试：`tests/test_missing_reference_disposition.py`（9 项：验收 3 +
+>   行为 4 + 触界 2）；conftest 增 `make_units_a17_no_reference` 与共享
+>   `run_cli_with_roles`。全量 67 项通过。
+> - cc-suite audit（full，gpt-5.6-sol/high）：0 Critical / 0 High /
+>   1 Medium / 2 Low，3/3 已修——03 票优先序测试补 reason 断言（06
+>   落地后两路径外部形态收敛，reason 是唯一可辨差异）、`_reject_unit`
+>   docstring 三类拒绝同步、替身注册管线上移 conftest 去重。
+>   记录：`.cc-suite/audits/audit-20260902-ticket06-findings.md`。
+> - Codex 独立复审：READY WITH NON-BLOCKING（0 blocking，checklist A–F
+>   全过——验收满足、裁定与 Spec/ADR-0003/03-04-05 先例一致、未越界、
+>   挡板退役完整、测试质量合格、无正确性缺陷）；唯一 non-blocking
+>   （run-summary 单元记录转字典会掩盖重复下落）已修（列表基数 +
+>   unit_id 唯一性断言先行）；focused closure review：**READY / 0
+>   blocking**。review thread：01a0620a-def4-7442-a948-4ef1099154ed。

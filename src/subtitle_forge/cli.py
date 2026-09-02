@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import inspect
 import sys
 from pathlib import Path
 
@@ -54,12 +55,43 @@ def _default_stub_roles() -> CognitiveRoles:
 
 # 认知角色集的最小装配契约：每个角色成员须实现其接口方法（Protocol
 # 的运行时最小校验——完整装配失败是运行级问题，全局中止而非逐 Source
-# 失败的 execution_failure 假象）。
+# 失败的 execution_failure 假象）。每项：角色成员名、接口方法、方法
+# 的位置参数个数（按位预检——bind 只验证可调用形态，不执行）。
 _ROLE_INTERFACE = (
-    ("extractor", "extract"),
-    ("inference_auditor", "audit_unit"),
-    ("coverage_auditor", "audit_coverage"),
+    ("extractor", "extract", 1),
+    ("inference_auditor", "audit_unit", 2),
+    ("coverage_auditor", "audit_coverage", 2),
 )
+
+
+def _validate_role_member(module_name: str, role_name: str, member, method: str, arity: int) -> None:
+    """单成员装配校验：非类、非协程函数、方法可按接口元数调用。"""
+    if member is None:
+        raise RuntimeError(
+            f"替身模块 {module_name!r} 的认知角色集不完整：{role_name} 缺失"
+        )
+    if isinstance(member, type):
+        raise RuntimeError(
+            f"替身模块 {module_name!r} 的 {role_name} 传入了类而非实例：{member!r}"
+        )
+    bound = getattr(member, method, None)
+    if not callable(bound):
+        raise RuntimeError(
+            f"替身模块 {module_name!r} 的认知角色集不完整："
+            f"{role_name} 缺少可用的 {method}() 接口"
+        )
+    if inspect.iscoroutinefunction(bound):
+        raise RuntimeError(
+            f"替身模块 {module_name!r} 的 {role_name}.{method}() 是协程函数，"
+            "与同步管线不兼容"
+        )
+    try:
+        inspect.signature(bound).bind(*([None] * arity))
+    except TypeError as exc:
+        raise RuntimeError(
+            f"替身模块 {module_name!r} 的 {role_name}.{method}() 与接口元数"
+            f"不符（需 {arity} 个位置参数）：{exc}"
+        ) from None
 
 
 def _load_stub_roles(module_name: str) -> CognitiveRoles:
@@ -78,13 +110,8 @@ def _load_stub_roles(module_name: str) -> CognitiveRoles:
             f"替身模块 {module_name!r} 的 stub_roles() 返回 {type(roles).__name__}，"
             "不是 CognitiveRoles 认知角色集"
         )
-    for role_name, method in _ROLE_INTERFACE:
-        member = getattr(roles, role_name, None)
-        if member is None or not callable(getattr(member, method, None)):
-            raise RuntimeError(
-                f"替身模块 {module_name!r} 的认知角色集不完整："
-                f"{role_name} 缺少可用的 {method}() 接口"
-            )
+    for role_name, method, arity in _ROLE_INTERFACE:
+        _validate_role_member(module_name, role_name, getattr(roles, role_name, None), method, arity)
     return roles
 
 

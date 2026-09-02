@@ -33,6 +33,7 @@ from conftest import (
 
 from subtitle_forge.roles import (
     CognitiveRoles,
+    ExtractionOutput,
     StubCoverageAuditor,
     StubExtractor,
     StubInferenceAuditor,
@@ -228,6 +229,30 @@ class _ExtractorInterruptOnEp02(StubExtractor):
         return super().extract(source)
 
 
+class _LazyUnitsExtractor(StubExtractor):
+    """提炼替身：units 以一次性生成器交付——接口的类型注解（tuple）
+    运行时不强制，隔离边界须自防御（物化前，单元循环会部分消费迭代
+    器，失败对账只剩尾部）。"""
+
+    def extract(self, source):
+        output = super().extract(source)
+        return ExtractionOutput(
+            units=(u for u in output.units), coverage_self_check=output.coverage_self_check
+        )
+
+
+class _MalformedUnitsExtractor(StubExtractor):
+    """提炼替身：ep02 的 units 末尾混入无 unit_id 的对象——对账路径会
+    读每个候选单元的 unit_id，畸形产物若进对账会让 except 块自身抛错、
+    破坏隔离（中止整批）。"""
+
+    def extract(self, source):
+        output = super().extract(source)
+        if source.source_id != "ep02":
+            return output
+        return ExtractionOutput(units=(*output.units, object()))
+
+
 class TestFailureIsolationBehavior:
     def test_mid_processing_failure_discards_partial_state(
         self, three_source_corpus, tmp_path
@@ -270,6 +295,9 @@ class TestFailureIsolationBehavior:
         assert entries[0]["category"] == "execution_failure"
         assert "受控：推理审计环节异常" in entries[0]["reason"]
 
+        # 失败 Source 无忠实层资产（产物性原子）
+        assert faithful_source_ids(asset_dir) == {"ep01", "ep03"}
+
     def test_failed_source_has_no_faithful_asset(self, three_source_corpus, tmp_path):
         """报告形态（票内裁定）：失败 Source 不写忠实层资产——为失败
         Source 写空资产会与「提炼完成但产出为空」（08 票保守提炼场景）
@@ -280,10 +308,12 @@ class TestFailureIsolationBehavior:
         assert faithful_source_ids(asset_dir) == {"ep01", "ep03"}
 
     def test_coverage_stage_failure_isolated(self, three_source_corpus, tmp_path):
-        """隔离边界覆盖整个处理作用域（票内裁定）：最晚环节（覆盖审计）
-        抛错同样隔离——ep02 单元级下落已全部处置完毕，仍整体作废（无
-        发布集条目），已知单元逐个记单元级 failed（A3 不静默消失）；
-        ep01/ep03 照常完成。"""
+        """隔离边界 + 产物性原子的最强形态（票内裁定）：最晚环节（覆盖
+        审计）抛错时，ep02 的单元已混合下落（u-101 通过 / u-102 拒绝
+        留缺口条目 / u-103 待复核）——全部作废：无发布集条目、缺口
+        报告只剩 execution_failure（u-102 的 audit_rejection 不残留）、
+        无忠实层资产；已知单元逐个记单元级 failed（A3 不静默消失，
+        基数与顺序先行）；ep01/ep03 照常完成。"""
 
         roles = CognitiveRoles(
             extractor=StubExtractor(
@@ -293,7 +323,12 @@ class TestFailureIsolationBehavior:
                     "ep03": make_ep03_units(),
                 }
             ),
-            inference_auditor=StubInferenceAuditor(),
+            inference_auditor=StubInferenceAuditor(
+                verdicts={
+                    "u-102": UnitAuditVerdict(verdict="reject", reason="受控：越界拒绝"),
+                    "u-103": UnitAuditVerdict(verdict="inconclusive", reason="受控：无法判定"),
+                }
+            ),
             coverage_auditor=_CoverageExplodingOnEp02(),
         )
         rc, asset_dir = run_and_write(three_source_corpus, tmp_path, roles)
@@ -303,22 +338,86 @@ class TestFailureIsolationBehavior:
         assert len(trusted) == len(EP01_UNITS | EP03_UNITS)  # 基数先行
         assert {e["unit_id"] for e in trusted} == EP01_UNITS | EP03_UNITS
 
-        summary = parse_json_block(asset_dir / "run-summary.md")
-        assert len(summary["sources"]) == 3
-        statuses = {s["source_id"]: s["status"] for s in summary["sources"]}
-        assert statuses == {"ep01": "success", "ep02": "failed", "ep03": "success"}
-        ep02 = next(s for s in summary["sources"] if s["source_id"] == "ep02")
-        assert {u["unit_id"]: u["status"] for u in ep02["units"]} == {
-            "u-101": "failed",
-            "u-102": "failed",
-            "u-103": "failed",
-        }
-
+        # 混合下落整体作废：缺口报告只剩 execution_failure，u-102 的
+        # audit_rejection 条目不残留（单单元单条下落）
         entries = parse_json_block(asset_dir / "gap-report.md")["entries"]
         assert [(e["category"], e["subject"]) for e in entries] == [
             ("execution_failure", "ep02")
         ]
         assert "覆盖审计环节异常" in entries[0]["reason"]
+
+        summary = parse_json_block(asset_dir / "run-summary.md")
+        assert len(summary["sources"]) == 3
+        statuses = {s["source_id"]: s["status"] for s in summary["sources"]}
+        assert statuses == {"ep01": "success", "ep02": "failed", "ep03": "success"}
+        ep02 = next(s for s in summary["sources"] if s["source_id"] == "ep02")
+        # 已知候选单元逐个 failed（顺序与提炼序一致），非部分下落
+        assert [(u["unit_id"], u["status"]) for u in ep02["units"]] == [
+            ("u-101", "failed"),
+            ("u-102", "failed"),
+            ("u-103", "failed"),
+        ]
+        assert all("覆盖审计环节异常" in u["reason"] for u in ep02["units"])
+
+        # 失败 Source 无忠实层资产（产物性原子；自描述清单可观察）
+        assert faithful_source_ids(asset_dir) == {"ep01", "ep03"}
+
+    def test_lazy_units_reconciled_in_full(self, three_source_corpus, tmp_path):
+        """隔离边界自防御（审计回归）：units 以一次性生成器交付、单元
+        审查中途抛错 → 对账仍覆盖全部已知单元（物化先行）——生成器被
+        单元循环部分消费后不得只剩尾部（A3/R4.3 已知单元不消失）。"""
+
+        roles = CognitiveRoles(
+            extractor=_LazyUnitsExtractor(
+                script={
+                    "ep01": make_units_with_time_range(),
+                    "ep02": make_ep02_units(),
+                    "ep03": make_ep03_units(),
+                }
+            ),
+            inference_auditor=_AuditorExplodingOnU102(),
+            coverage_auditor=StubCoverageAuditor(),
+        )
+        rc, asset_dir = run_and_write(three_source_corpus, tmp_path, roles)
+        assert rc == 1
+
+        ep02 = next(
+            s for s in parse_json_block(asset_dir / "run-summary.md")["sources"]
+            if s["source_id"] == "ep02"
+        )
+        assert ep02["status"] == "failed"
+        assert [u["unit_id"] for u in ep02["units"]] == ["u-101", "u-102", "u-103"]
+        assert all(u["status"] == "failed" for u in ep02["units"])
+
+    def test_malformed_units_isolated_not_batch_abort(self, three_source_corpus, tmp_path):
+        """隔离边界自防御（审计回归）：提炼产物含无 unit_id 的畸形对象
+        → 角色契约破坏按 Source 局部错误隔离（运行完成、退出码 1、
+        其余 Source 照常），对账不读畸形产物（except 块自身不抛错，
+        无已知单元可对账）。"""
+
+        roles = CognitiveRoles(
+            extractor=_MalformedUnitsExtractor(
+                script={
+                    "ep01": make_units_with_time_range(),
+                    "ep02": make_ep02_units(),
+                    "ep03": make_ep03_units(),
+                }
+            ),
+            inference_auditor=StubInferenceAuditor(),
+            coverage_auditor=StubCoverageAuditor(),
+        )
+        rc, asset_dir = run_and_write(three_source_corpus, tmp_path, roles)
+        assert rc == 1
+
+        summary = parse_json_block(asset_dir / "run-summary.md")
+        statuses = {s["source_id"]: s["status"] for s in summary["sources"]}
+        assert statuses == {"ep01": "success", "ep02": "failed", "ep03": "success"}
+        ep02 = next(s for s in summary["sources"] if s["source_id"] == "ep02")
+        assert ep02["units"] == []  # 畸形产物不进对账（无有效身份可记）
+        assert "提炼产物含无效知识单元" in ep02["reason"]
+        assert parse_json_block(asset_dir / "gap-report.md")["entries"][0][
+            "category"
+        ] == "execution_failure"
 
     def test_stale_faithful_asset_of_failed_source_removed(self, three_source_corpus, tmp_path):
         """同目录复用（审计修复回归）：先前成功运行写下的失败 Source
@@ -407,6 +506,24 @@ class TestFailureIsolationBehavior:
 # ---------------------------------------------------------------------------
 
 
+class _WrongArityExtractor(StubExtractor):
+    """提炼替身：接口方法位置参数元数不符（bind 预检的靶子）。"""
+
+    def extract(self, source, extra_required):  # type: ignore[override]
+        return super().extract(source, extra_required)  # pragma: no cover - 不会被调用
+
+
+class _AsyncExtractor(StubExtractor):
+    """提炼替身：接口方法是协程函数——与同步管线不兼容，装配即拒。"""
+
+    async def extract(self, source):  # type: ignore[override]
+        return await _async_extract(self, source)
+
+
+async def _async_extract(stub, source):  # pragma: no cover - 不会被调用
+    return StubExtractor.extract(stub, source)
+
+
 class TestFailureIsolationBoundaries:
     def test_base_exception_not_isolated_aborts_run(self, three_source_corpus, tmp_path):
         """非隔离边界（票内裁定）：BaseException（如人为中断
@@ -467,15 +584,39 @@ class TestFailureIsolationBoundaries:
                 ),
                 id="role-member-missing",
             ),
+            pytest.param(
+                CognitiveRoles(
+                    extractor=StubExtractor,  # 类而非实例
+                    inference_auditor=StubInferenceAuditor(),
+                    coverage_auditor=StubCoverageAuditor(),
+                ),
+                id="role-member-is-class",
+            ),
+            pytest.param(
+                CognitiveRoles(
+                    extractor=_WrongArityExtractor(script={}),
+                    inference_auditor=StubInferenceAuditor(),
+                    coverage_auditor=StubCoverageAuditor(),
+                ),
+                id="role-method-wrong-arity",
+            ),
+            pytest.param(
+                CognitiveRoles(
+                    extractor=_AsyncExtractor(script={}),
+                    inference_auditor=StubInferenceAuditor(),
+                    coverage_auditor=StubCoverageAuditor(),
+                ),
+                id="role-method-coroutine",
+            ),
         ],
     )
     def test_stub_factory_bad_return_global_abort(
         self, three_source_corpus, tmp_path, capsys, bad_roles
     ):
         """全局错误初始判据 (b) 的完整形态（票内裁定）：替身工厂产物不是
-        可用的认知角色集（返回 None / 角色成员缺失）→ 运行级装配失败，
-        全局中止（退出码 3），不得放行成逐 Source 失败的
-        execution_failure 假象。"""
+        可用的认知角色集（返回 None / 角色成员缺失 / 传类而非实例 /
+        接口元数不符 / 协程函数）→ 运行级装配失败，全局中止（退出码
+        3），不得放行成逐 Source 失败的 execution_failure 假象。"""
 
         mod = types.ModuleType("bad_factory_stub_roles")
         mod.stub_roles = lambda: bad_roles  # type: ignore[attr-defined]

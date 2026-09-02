@@ -245,7 +245,17 @@ def _process_source(
 
     # —— 提炼（生成认知责任）——
     extraction = roles.extractor.extract(source)
-    progress.extracted_units = extraction.units
+    # 提炼产物规范化（隔离边界的健壮性，07 票）：(a) 物化为元组——一次性
+    # 迭代器会被单元循环部分消费，失败对账时只剩尾部（已知单元静默
+    # 消失，违反 A3/R4.3）；(b) 最小形状校验——失败路径的对账记录要读
+    # 每个候选单元的 unit_id，缺 unit_id 的畸形产物会让对账自身抛错、
+    # 破坏隔离（异常逃出 except 块中止整批）。校验不过 = 角色契约破坏
+    # = Source 局部错误（无已知单元可对账）。
+    units = tuple(extraction.units)
+    for candidate in units:
+        if not isinstance(getattr(candidate, "unit_id", None), str):
+            raise ValueError(f"提炼产物含无效知识单元（unit_id 缺失或非字符串）：{candidate!r}")
+    progress.extracted_units = units
 
     # 忠实性比对基准索引：每个 Segment 原文最小规范化恰一次，单元
     # 程序门按 segment_id 直接查找（比对基准是所指 Segment 的原文）。
@@ -257,7 +267,7 @@ def _process_source(
     trusted_entries: list[TrustedSetEntry] = []
     gap_entries: list[GapEntry] = []
     units_record: list[UnitRecord] = []
-    for unit in extraction.units:
+    for unit in units:
         verdict = roles.inference_auditor.audit_unit(source, unit)
 
         if verdict.verdict == "reject":
@@ -349,7 +359,7 @@ def _process_source(
         )
 
     # —— 覆盖审计（独立审查环节，裁决 3）——
-    coverage = roles.coverage_auditor.audit_coverage(source, list(extraction.units))
+    coverage = roles.coverage_auditor.audit_coverage(source, list(units))
     # 覆盖结论进运行摘要（可观察通道）；"覆盖存疑"缺口条目（R4.2
     # 缺口类别）与指标成对（ADR-0003）由后续票落地。
 
@@ -370,7 +380,7 @@ def _process_source(
         source_reason = ""
 
     return _SourceProcessing(
-        units=extraction.units,
+        units=units,
         trusted_entries=tuple(trusted_entries),
         gap_entries=tuple(gap_entries),
         units_record=tuple(units_record),
@@ -385,7 +395,9 @@ def run_corpus(corpus: Corpus, roles: CognitiveRoles) -> RunOutcome:
 
     每个认知角色对每个作用对象至多调用一次（失败隔离会截断失败
     Source 的后续环节，07 票；01 骨架）产出的对账覆盖 Corpus 全量
-    Source 及其全部知识单元（失败 Source 以 Source 级状态对账）。
+    Source 及其全部知识单元（提炼阶段即失败的 Source 无已知单元，以
+    Source 级状态对账；其后环节失败的 Source 另逐个记录已知单元的
+    单元级 failed 下落）。
 
     Source 失败隔离（07 票，R4.6、R4.2、A3、A11）：单个 Source 处理
     作用域内的任何 ``Exception``（认知角色抛错、程序门守卫）只使该

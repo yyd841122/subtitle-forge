@@ -163,6 +163,46 @@ def make_unit_text_position() -> KnowledgeUnit:
     )
 
 
+def make_units_a2_overreach() -> tuple[KnowledgeUnit, ...]:
+    """A2（推理审计）场景的三个单元：u-002 带真实存在于原文的引用
+    （锚定 seg2，只讲阶乘的基准情形），但陈述明显越界——推广为一切
+    递归函数的基准情形。推理审查替身据此对 u-002 预设 reject（票 03
+    的受控输入：引用真实存在，断言超出引用支持范围）。"""
+
+    return (
+        KnowledgeUnit(
+            unit_id="u-001",
+            unit_type="claim",
+            statement="递归的核心结构是函数调用自身并逐步缩小问题规模",
+            source_reference=SourceReference(
+                segment_id=seg_id(1),
+                quoted_text=SEG_TEXTS[0],
+                locator=TimeRangeLocator(start_ms=1000, end_ms=6000),
+            ),
+        ),
+        KnowledgeUnit(
+            unit_id="u-002",
+            unit_type="claim",
+            statement="一切递归函数的基准情形都是 n 等于零时返回一",
+            source_reference=SourceReference(
+                segment_id=seg_id(2),
+                quoted_text=SEG_TEXTS[1],
+                locator=TimeRangeLocator(start_ms=7500, end_ms=13200),
+            ),
+        ),
+        KnowledgeUnit(
+            unit_id="u-003",
+            unit_type="conclusion",
+            statement="递归深度必须有限，否则栈会溢出",
+            source_reference=SourceReference(
+                segment_id=seg_id(3),
+                quoted_text=SEG_TEXTS[2],
+                locator=TimeRangeLocator(start_ms=14000, end_ms=18300),
+            ),
+        ),
+    )
+
+
 def seg2_id(n: int) -> str:
     return f"ep02#seg{n:04d}"
 

@@ -6,14 +6,14 @@
 
 **Blocked by（硬依赖）:** 03（复用拒绝下落机制）。
 
-**Status:** open（2026-09-02 materialized）
+**Status:** done (2026-09-02, Codex 独立复审 READY / 0 blocking / 0 findings)
 
 **Materialized from:** plan v2.2 票 04（ADR-0007）
 
 **Acceptance（端到端断言，只对外部产物）:**
-- [ ] 替身产出「引用文本不存在于原文」的单元 + 审查替身 `pass` → 该单元不在发布集
-- [ ] gap-report 的 `audit_rejection` 条目可辨原因来自忠实性比对
-- [ ] 同 run 中真引用单元照常通过（比对不误伤）
+- [x] 替身产出「引用文本不存在于原文」的单元 + 审查替身 `pass` → 该单元不在发布集
+- [x] gap-report 的 `audit_rejection` 条目可辨原因来自忠实性比对
+- [x] 同 run 中真引用单元照常通过（比对不误伤）
 
 **Implementation / code anchors:** `pipeline.py` 单元准入段（`_trusted_entry` 之前）；`Segment.text` 为比对基准（`ass.py` 保留解析后原文形态）。
 
@@ -22,3 +22,12 @@
 **票内裁定:** Open Impl 10 初始算法（精确匹配或最小规范化后匹配）；该检查在管线中的位置（发布集准入前的程序门，不经任何认知角色）。
 
 **Spec 覆盖责任:** A1；R3.1。
+
+> 票内裁定落定记录（2026-09-02 done）：初始算法 = 最小规范化后匹配（空白连续段
+> 含换行折叠为单个空格 + 去首尾，逐字子串、锚定所指 segment_id；空引用与悬空
+> segment_id 均不成立）；程序门位于发布集准入前（pipeline.py，`_trusted_entry`
+> 之前），不经任何认知角色；拒绝理由以「忠实性比对不成立」为稳定前缀（缺口条
+> 目与运行摘要据此可辨来源）。悬空 segment_id 与 locator 一致性校验：前者随本票
+> 落地为忠实性拒绝，locator 与所指片段的一致性校验不属本票（比对容差范畴，
+> 未拆票前不做）——cc-suite audit 遗留观察，见
+> `.cc-suite/audits/audit-20260902-184904-findings.md` #1。

@@ -242,8 +242,9 @@ class TestNeedsReviewBoundaries:
         理由（空或纯空白）→ 该 Source 的处理抛错（角色契约破坏；理由
         只能来自替身结论，不容系统兜底措辞），Source failed +
         execution_failure 条目（原因含守卫信息）、退出码 1；守卫不变量
-        仍绝对成立——不产出无理由的 needs_review 记录（该单元无任何
-        下落）。与 03 票拒绝缺理由守卫对称。"""
+        仍绝对成立——不产出无理由的 needs_review 记录（已知单元记
+        单元级 failed，不作兜底处置也不静默消失）。与 03 票拒绝缺理由
+        守卫对称。"""
 
         for i, blank_reason in enumerate(("", "   ")):
             roles = CognitiveRoles(
@@ -261,7 +262,9 @@ class TestNeedsReviewBoundaries:
 
             src = parse_json_block(asset_dir / "run-summary.md")["sources"][0]
             assert src["status"] == "failed"
-            assert src["units"] == []  # 无任何单元下落记录（不作兜底处置）
+            assert [u["unit_id"] for u in src["units"]] == ["u-001"]
+            assert src["units"][0]["status"] == "failed"  # 不作无理由的待复核处置
+            assert "缺少理由" in src["units"][0]["reason"]
             assert "缺少理由" in src["reason"]
 
             entries = parse_json_block(asset_dir / "gap-report.md")["entries"]
@@ -275,9 +278,9 @@ class TestNeedsReviewBoundaries:
         """结论值域守卫（07 票隔离后的可观察形态）：pass/reject/
         inconclusive 之外的结论值（替身契约破坏）→ 该 Source 的处理
         抛错，Source failed + execution_failure 条目（原因含值域外
-        结论值），不静默当作任何已知下落处置。含 low_confidence：
-        R3.8——"低可信"只是风险信号，不是结论值、更不是实体状态，
-        冒充结论值即契约破坏。"""
+        结论值），不静默当作任何已知下落处置（已知单元记单元级
+        failed）。含 low_confidence：R3.8——"低可信"只是风险信号，
+        不是结论值、更不是实体状态，冒充结论值即契约破坏。"""
 
         roles = CognitiveRoles(
             extractor=StubExtractor(script={"ep01": make_units_with_time_range()[:1]}),
@@ -293,6 +296,7 @@ class TestNeedsReviewBoundaries:
         src = parse_json_block(asset_dir / "run-summary.md")["sources"][0]
         assert src["status"] == "failed"
         assert f"{bad_verdict!r}" in src["reason"]
+        assert [u["status"] for u in src["units"]] == ["failed"]
 
         entries = parse_json_block(asset_dir / "gap-report.md")["entries"]
         assert [e["category"] for e in entries] == ["execution_failure"]

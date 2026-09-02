@@ -7,9 +7,11 @@ fixture：资产目录不可写）仍中止整批（退出码 3，无半成品�
 
 票内裁定（见票面记录）：Source 局部错误 = 单个 Source 处理作用域内抛出
 的一切 Exception（含 03/05 票守卫）；全局错误初始清单 = Corpus 装载
-失败/空 Corpus、替身模块装载失败、资产落盘失败。失败 Source 的原子性：
-无单元记录、无忠实层资产、任何单元不进发布集（半成品整体作废）。
-退出码契约：0 无 failed / 1 部分 failed / 2 用法 / 3 全局中止。
+失败/空 Corpus、替身模块装载失败（含工厂产物校验）、资产落盘失败。
+失败 Source 的原子性分两层：产物性状态（发布集条目、缺口条目、已处置
+单元下落、忠实层资产）整体作废；对账性状态保留（提炼已完成的已知候选
+单元逐个记单元级 failed，A3/R4.3 不静默消失；提炼本身抛错则无已知
+单元）。退出码契约：0 无 failed / 1 部分 failed / 2 用法 / 3 全局中止。
 """
 
 from __future__ import annotations
@@ -104,14 +106,22 @@ class TestFailureIsolationAcceptance:
     def test_second_source_extraction_failure_isolated(self, three_source_corpus, tmp_path):
         """AC1：三 Source、第二个（ep02）提炼替身抛错 → ep01/ep03 正常
         产出且发布集含其全部单元（互不污染）；ep02 failed + gap
-        execution_failure 条目（含原因——替身抛错信息可辨，A11）。"""
+        execution_failure 条目（含原因——替身抛错信息可辨，A11）。
+        提炼本身抛错 ⇒ 无已知候选单元，ep02 无单元记录（无可对账者，
+        非静默消失）。"""
 
         rc, asset_dir = run_and_write(three_source_corpus, tmp_path, isolated_roles())
         assert rc == 1
 
         trusted = parse_json_block(asset_dir / "trusted-set.md")
+        assert len(trusted["entries"]) == len(EP01_UNITS | EP03_UNITS)  # 基数先行（防重复）
         assert {e["unit_id"] for e in trusted["entries"]} == EP01_UNITS | EP03_UNITS
         assert all(e["source_id"] != "ep02" for e in trusted["entries"])
+
+        summary = parse_json_block(asset_dir / "run-summary.md")
+        ep02 = next(s for s in summary["sources"] if s["source_id"] == "ep02")
+        assert ep02["status"] == "failed"
+        assert ep02["units"] == []  # 提炼未完成 ⇒ 无已知单元（A3 无冲突）
 
         entries = parse_json_block(asset_dir / "gap-report.md")["entries"]
         assert len(entries) == 1
@@ -138,10 +148,12 @@ class TestFailureIsolationAcceptance:
         self, three_source_corpus, tmp_path
     ):
         """AC2：全部 Source 均有实体状态（A3 无静默消失）——三个 Source
-        全部在运行摘要中，ep02 failed 且 reason 非空。"""
+        全部在运行摘要中（基数先行），ep02 failed 且 reason 非空。"""
 
         _, asset_dir = run_and_write(three_source_corpus, tmp_path, isolated_roles())
         summary = parse_json_block(asset_dir / "run-summary.md")
+        assert len(summary["sources"]) == 3  # 基数先行（防重复记录）
+        assert len({s["source_id"] for s in summary["sources"]}) == 3
         statuses = {s["source_id"]: s["status"] for s in summary["sources"]}
         assert statuses == {"ep01": "success", "ep02": "failed", "ep03": "success"}
 
@@ -220,10 +232,11 @@ class TestFailureIsolationBehavior:
     def test_mid_processing_failure_discards_partial_state(
         self, three_source_corpus, tmp_path
     ):
-        """原子性（票内裁定）：提炼完成、单元审查中途抛错 → 该 Source
-        失败发生前已通过审查的单元（u-101）也不进发布集、不留单元记录
-        （R4.6：无法形成符合规格要求的 Source 结果，半成品整体作废）；
-        execution_failure 条目是其唯一留痕，前后 Source 照常完成。"""
+        """产物性原子 + 对账不消失（票内裁定，A3/R4.3）：提炼完成、单元
+        审查中途抛错 → 已通过审查的单元（u-101）不进发布集、已处置
+        下落作废（R4.6：无法形成符合规格要求的 Source 结果）；但已知
+        候选单元逐个记单元级 failed（含原因）——知识单元不静默消失。
+        前后 Source 照常完成。"""
 
         roles = CognitiveRoles(
             extractor=StubExtractor(
@@ -240,13 +253,17 @@ class TestFailureIsolationBehavior:
         assert rc == 1
 
         # u-101 在异常发生前已通过——半成品作废，不得泄入发布集
-        trusted_ids = {e["unit_id"] for e in parse_json_block(asset_dir / "trusted-set.md")["entries"]}
-        assert trusted_ids == EP01_UNITS | EP03_UNITS
+        trusted = parse_json_block(asset_dir / "trusted-set.md")["entries"]
+        assert len(trusted) == len(EP01_UNITS | EP03_UNITS)  # 基数先行
+        assert {e["unit_id"] for e in trusted} == EP01_UNITS | EP03_UNITS
 
         summary = parse_json_block(asset_dir / "run-summary.md")
         ep02 = next(s for s in summary["sources"] if s["source_id"] == "ep02")
         assert ep02["status"] == "failed"
-        assert ep02["units"] == []  # 无任何单元下落记录（不是部分下落）
+        # 已知候选单元逐个 failed（A3：无静默消失），非部分下落、非空
+        assert [u["unit_id"] for u in ep02["units"]] == ["u-101", "u-102", "u-103"]
+        assert all(u["status"] == "failed" for u in ep02["units"])
+        assert all("推理审计环节异常" in u["reason"] for u in ep02["units"])
 
         entries = parse_json_block(asset_dir / "gap-report.md")["entries"]
         assert len(entries) == 1
@@ -265,7 +282,8 @@ class TestFailureIsolationBehavior:
     def test_coverage_stage_failure_isolated(self, three_source_corpus, tmp_path):
         """隔离边界覆盖整个处理作用域（票内裁定）：最晚环节（覆盖审计）
         抛错同样隔离——ep02 单元级下落已全部处置完毕，仍整体作废（无
-        发布集条目、无单元记录），ep01/ep03 照常完成。"""
+        发布集条目），已知单元逐个记单元级 failed（A3 不静默消失）；
+        ep01/ep03 照常完成。"""
 
         roles = CognitiveRoles(
             extractor=StubExtractor(
@@ -281,16 +299,20 @@ class TestFailureIsolationBehavior:
         rc, asset_dir = run_and_write(three_source_corpus, tmp_path, roles)
         assert rc == 1
 
-        trusted_ids = {
-            e["unit_id"] for e in parse_json_block(asset_dir / "trusted-set.md")["entries"]
-        }
-        assert trusted_ids == EP01_UNITS | EP03_UNITS
+        trusted = parse_json_block(asset_dir / "trusted-set.md")["entries"]
+        assert len(trusted) == len(EP01_UNITS | EP03_UNITS)  # 基数先行
+        assert {e["unit_id"] for e in trusted} == EP01_UNITS | EP03_UNITS
 
         summary = parse_json_block(asset_dir / "run-summary.md")
+        assert len(summary["sources"]) == 3
         statuses = {s["source_id"]: s["status"] for s in summary["sources"]}
         assert statuses == {"ep01": "success", "ep02": "failed", "ep03": "success"}
         ep02 = next(s for s in summary["sources"] if s["source_id"] == "ep02")
-        assert ep02["units"] == []
+        assert {u["unit_id"]: u["status"] for u in ep02["units"]} == {
+            "u-101": "failed",
+            "u-102": "failed",
+            "u-103": "failed",
+        }
 
         entries = parse_json_block(asset_dir / "gap-report.md")["entries"]
         assert [(e["category"], e["subject"]) for e in entries] == [
@@ -327,7 +349,7 @@ class TestFailureIsolationBehavior:
         """Open Impl 13 初始判据（票内裁定）：03/05 票守卫（角色契约破坏，
         如拒绝结论缺理由）的异常属 Source 局部错误——只使该 Source
         failed，另一 Source 照常完成；守卫不变量仍成立（不产出缺原因的
-        拒绝条目——该单元无任何下落，execution_failure 是唯一留痕）。"""
+        拒绝条目——已知单元记单元级 failed，无任何准入性下落）。"""
 
         roles = CognitiveRoles(
             extractor=StubExtractor(
@@ -343,12 +365,19 @@ class TestFailureIsolationBehavior:
 
         assert rc == 1
         summary = parse_json_block(asset_dir / "run-summary.md")
+        assert len(summary["sources"]) == 2
         statuses = {s["source_id"]: s["status"] for s in summary["sources"]}
         assert statuses == {"ep01": "failed", "ep02": "success"}
-        assert "缺少理由" in next(s for s in summary["sources"] if s["source_id"] == "ep01")["reason"]
+        ep01 = next(s for s in summary["sources"] if s["source_id"] == "ep01")
+        assert "缺少理由" in ep01["reason"]
+        # 已知单元（提炼已完成）记单元级 failed——缺理由结论不作任何
+        # 准入性处置（守卫不变量），也不静默消失（A3）
+        assert [u["unit_id"] for u in ep01["units"]] == ["u-001"]
+        assert ep01["units"][0]["status"] == "failed"
 
-        trusted_ids = {e["unit_id"] for e in parse_json_block(asset_dir / "trusted-set.md")["entries"]}
-        assert trusted_ids == EP02_UNITS
+        trusted = parse_json_block(asset_dir / "trusted-set.md")["entries"]
+        assert len(trusted) == len(EP02_UNITS)  # 基数先行
+        assert {e["unit_id"] for e in trusted} == EP02_UNITS
 
         entries = parse_json_block(asset_dir / "gap-report.md")["entries"]
         assert [(e["category"], e["source_id"]) for e in entries] == [
@@ -426,13 +455,30 @@ class TestFailureIsolationBoundaries:
         assert "全局错误" in capsys.readouterr().err
         assert not (asset_dir / "run-summary.md").exists()
 
-    def test_stub_factory_bad_return_global_abort(self, three_source_corpus, tmp_path, capsys):
-        """全局错误初始判据 (b) 的完整形态（票内裁定）：替身工厂存在但
-        产物不是认知角色集 → 运行级装配失败，全局中止（退出码 3），
-        不得放行成逐 Source 失败的 execution_failure 假象。"""
+    @pytest.mark.parametrize(
+        "bad_roles",
+        [
+            pytest.param(None, id="factory-returns-none"),
+            pytest.param(
+                CognitiveRoles(
+                    extractor=None,  # type: ignore[arg-type]
+                    inference_auditor=StubInferenceAuditor(),
+                    coverage_auditor=StubCoverageAuditor(),
+                ),
+                id="role-member-missing",
+            ),
+        ],
+    )
+    def test_stub_factory_bad_return_global_abort(
+        self, three_source_corpus, tmp_path, capsys, bad_roles
+    ):
+        """全局错误初始判据 (b) 的完整形态（票内裁定）：替身工厂产物不是
+        可用的认知角色集（返回 None / 角色成员缺失）→ 运行级装配失败，
+        全局中止（退出码 3），不得放行成逐 Source 失败的
+        execution_failure 假象。"""
 
         mod = types.ModuleType("bad_factory_stub_roles")
-        mod.stub_roles = lambda: None  # type: ignore[attr-defined]
+        mod.stub_roles = lambda: bad_roles  # type: ignore[attr-defined]
         sys.modules["bad_factory_stub_roles"] = mod
         from subtitle_forge.cli import main
 

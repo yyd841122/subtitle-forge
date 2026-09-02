@@ -181,8 +181,9 @@ def write_run_summary(dir_root: Path, summary: RunSummary) -> Path:
         "# 运行摘要（Run Summary）",
         "",
         "一次运行的全量去向对账：每个 Source 均有实体状态、无静默消失；"
-        "完成处理的 Source 的每个知识单元均有下落（失败 Source 由缺口"
-        "报告的 execution_failure 条目对账，07 票）。",
+        "完成处理的 Source 的每个知识单元均有下落；失败 Source 的已知"
+        "候选单元逐个记单元级 failed，另由缺口报告的 execution_failure "
+        "条目对账（07 票）。",
         "",
         _fence(
             {

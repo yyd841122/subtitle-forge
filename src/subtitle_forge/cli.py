@@ -52,6 +52,16 @@ def _default_stub_roles() -> CognitiveRoles:
     )
 
 
+# 认知角色集的最小装配契约：每个角色成员须实现其接口方法（Protocol
+# 的运行时最小校验——完整装配失败是运行级问题，全局中止而非逐 Source
+# 失败的 execution_failure 假象）。
+_ROLE_INTERFACE = (
+    ("extractor", "extract"),
+    ("inference_auditor", "audit_unit"),
+    ("coverage_auditor", "audit_coverage"),
+)
+
+
 def _load_stub_roles(module_name: str) -> CognitiveRoles:
     module = importlib.import_module(module_name)
     factory = getattr(module, "stub_roles", None)
@@ -68,6 +78,13 @@ def _load_stub_roles(module_name: str) -> CognitiveRoles:
             f"替身模块 {module_name!r} 的 stub_roles() 返回 {type(roles).__name__}，"
             "不是 CognitiveRoles 认知角色集"
         )
+    for role_name, method in _ROLE_INTERFACE:
+        member = getattr(roles, role_name, None)
+        if member is None or not callable(getattr(member, method, None)):
+            raise RuntimeError(
+                f"替身模块 {module_name!r} 的认知角色集不完整："
+                f"{role_name} 缺少可用的 {method}() 接口"
+            )
     return roles
 
 

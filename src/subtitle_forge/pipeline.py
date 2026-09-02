@@ -37,9 +37,12 @@ Source 失败隔离（07 票，R4.6、R4.2、R5.5、A3、A11）：单个 Source
 处理作用域内抛出的任何 Exception——认知角色抛错（替身脚本注入的失败
 种子）与角色契约守卫（03/05 票的缺理由/值域守卫）同族——只使该
 Source failed：缺口报告留 execution_failure 条目（含原因与下落）、
-运行摘要留 failed 记录、中间状态整体作废（原子性：已通过单元不进
-发布集、无单元记录、无忠实层产物），其余 Source 照常完成。全局性
-错误（Corpus 装载、替身装载、资产落盘——作用域之外）仍中止整批
+运行摘要留 failed 记录，其余 Source 照常完成。原子性分两层（票内
+裁定）：产物性状态整体作废（已处置单元的 passed/rejected/needs_review
+记录及其缺口条目、发布集条目、忠实层产物）；对账性状态保留——提炼
+已完成的已知候选单元逐个记单元级 failed（A3/R4.3：知识单元不静默
+消失，单元级 failed 状态即为此设），提炼本身抛错则无已知单元。全局
+性错误（Corpus 装载、替身装载、资产落盘——作用域之外）仍中止整批
 （R5.5；判定清单是 Open Impl 13 初始判据，完备化属后续票）。
 
 角色行为的可观察性（Testing Decisions：替身分别设定行为，断言只针对
@@ -63,6 +66,7 @@ from .artifacts import (
     SOURCE_STATUS_FAILED,
     SOURCE_STATUS_NEEDS_REVIEW,
     SOURCE_STATUS_SUCCESS,
+    UNIT_STATUS_FAILED,
     UNIT_STATUS_NEEDS_REVIEW,
     UNIT_STATUS_PASSED,
     UNIT_STATUS_REJECTED,
@@ -198,9 +202,10 @@ def _execution_failure_reason(exc: BaseException) -> str:
 class _SourceProcessing:
     """单个 Source 完整处理后的全部结果（07 票隔离边界的载荷）。
 
-    状态只在本结构内局部积累，Source 处理完整结束才并入全局产物——
-    中途抛错时调用方丢弃全部字段（原子性票内裁定），该 Source 只留
-    failed 记录与 execution_failure 缺口条目。
+    产物性状态（发布集条目、缺口条目、单元下落记录、提炼产物）只在
+    本结构内局部积累，Source 处理完整结束才并入全局产物——中途抛错
+    时调用方丢弃全部字段（产物性原子裁定）。对账性状态另经
+    ``_SourceProgress`` 保留（已知单元不静默消失，A3/R4.3）。
     """
 
     units: tuple[KnowledgeUnit, ...]  # 提炼产物，资产落盘取材
@@ -212,18 +217,35 @@ class _SourceProcessing:
     coverage: CoverageVerdict | None  # 覆盖审计结论
 
 
-def _process_source(source: Source, roles: CognitiveRoles) -> _SourceProcessing:
+@dataclass
+class _SourceProgress:
+    """Source 处理进度（可变，隔离边界外可读）：已完成的提炼产物。
+
+    仅用于失败时的对账（07 票）：提炼已完成（异常发生在其后环节）
+    ⇒ 候选单元是已知实体，须在运行摘要以单元级 ``failed`` 记录下落，
+    不得静默消失（A3、R4.3、PRODUCT「所有知识单元都有明确下落」）；
+    提炼本身抛错则无已知单元（空元组，无可对账者）。
+    """
+
+    extracted_units: tuple[KnowledgeUnit, ...] = ()
+
+
+def _process_source(
+    source: Source, roles: CognitiveRoles, progress: _SourceProgress
+) -> _SourceProcessing:
     """处理单个 Source 的全部认知与程序环节（提炼 → 单元级审查/程序门 →
     覆盖审计 → Source 状态裁定）。
 
     抛出的任何 ``Exception`` 由调用方按 Source 局部错误隔离（07 票
     Open Impl 13 初始判据）：守卫（拒绝/待复核缺理由、结论值域外）与
     认知角色抛错同族——都是"该 Source 的处理抛错"（R4.6：流程无法
-    完整完成 → failed），不再中止整批。
+    完整完成 → failed），不再中止整批。提炼完成后 ``progress`` 即持有
+    已知候选单元，供调用方在失败路径对账。
     """
 
     # —— 提炼（生成认知责任）——
     extraction = roles.extractor.extract(source)
+    progress.extracted_units = extraction.units
 
     # 忠实性比对基准索引：每个 Segment 原文最小规范化恰一次，单元
     # 程序门按 segment_id 直接查找（比对基准是所指 Segment 的原文）。
@@ -368,10 +390,11 @@ def run_corpus(corpus: Corpus, roles: CognitiveRoles) -> RunOutcome:
     Source 失败隔离（07 票，R4.6、R4.2、A3、A11）：单个 Source 处理
     作用域内的任何 ``Exception``（认知角色抛错、程序门守卫）只使该
     Source ``failed``——缺口报告留 ``execution_failure`` 条目（含原因
-    与下落）、运行摘要留 failed 记录，其余 Source 照常处理。原子性：
-    失败 Source 的一切中间状态（已通过单元、单元记录、提炼产物）整体
-    作废，不进任何外部产物。``BaseException``（KeyboardInterrupt 等）
-    不经隔离，仍使整次运行中止。
+    与下落）、运行摘要留 failed 记录，其余 Source 照常处理。产物性
+    原子：失败 Source 的一切中间产物（已处置单元的下落与缺口条目、
+    发布集条目、忠实层产物）整体作废；对账不消失：提炼已完成的已知
+    候选单元逐个记单元级 ``failed``。``BaseException``
+    （KeyboardInterrupt 等）不经隔离，仍使整次运行中止。
     """
 
     started = time.monotonic()
@@ -381,13 +404,16 @@ def run_corpus(corpus: Corpus, roles: CognitiveRoles) -> RunOutcome:
     source_units: dict[str, tuple[KnowledgeUnit, ...]] = {}
 
     for source in corpus.sources:
+        progress = _SourceProgress()
         try:
-            processed = _process_source(source, roles)
+            processed = _process_source(source, roles, progress)
         except Exception as exc:
             # —— Source 局部错误隔离（07 票）——
-            # 该 Source 的处理无法完整完成（R4.6 failed）：唯一留痕是
-            # execution_failure 缺口条目 + 运行摘要 failed 记录（均含
-            # 原因），中间状态已在 _process_source 内局部作废。
+            # 该 Source 的处理无法完整完成（R4.6 failed）。产物性状态
+            # （已处置单元的下落、缺口条目、发布集条目）已在
+            # _process_source 内局部作废；对账性状态保留：提炼已完成
+            # 的已知候选单元逐个记单元级 failed（含原因）——已知实体
+            # 不静默消失（A3、R4.3）；提炼本身抛错则无可对账单元。
             reason = _execution_failure_reason(exc)
             gaps.append(
                 GapEntry(
@@ -403,6 +429,12 @@ def run_corpus(corpus: Corpus, roles: CognitiveRoles) -> RunOutcome:
                     source_id=source.source_id,
                     status=SOURCE_STATUS_FAILED,
                     reason=reason,
+                    units=tuple(
+                        UnitRecord(
+                            unit_id=u.unit_id, status=UNIT_STATUS_FAILED, reason=reason
+                        )
+                        for u in progress.extracted_units
+                    ),
                 )
             )
             continue

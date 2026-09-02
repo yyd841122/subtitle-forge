@@ -185,7 +185,8 @@ class TestAuditRejectionBoundaries:
         （空或纯空白）→ 该 Source 的处理抛错（角色契约破坏），Source
         failed + execution_failure 条目（原因含守卫信息）、退出码 1；
         守卫不变量仍绝对成立——不产出缺原因的半成品拒绝条目（缺口
-        报告无 audit_rejection 条目，该单元无任何下落）。"""
+        报告无 audit_rejection 条目）；已知单元记单元级 failed
+        （不作缺理由处置，也不静默消失）。"""
 
         for i, blank_reason in enumerate(("", "   ")):
             roles = CognitiveRoles(
@@ -203,7 +204,9 @@ class TestAuditRejectionBoundaries:
 
             src = parse_json_block(asset_dir / "run-summary.md")["sources"][0]
             assert src["status"] == "failed"
-            assert src["units"] == []  # 无任何单元下落记录（不作缺理由处置）
+            assert [u["unit_id"] for u in src["units"]] == ["u-001"]
+            assert src["units"][0]["status"] == "failed"  # 不作缺理由的拒绝处置
+            assert "缺少理由" in src["units"][0]["reason"]
             assert "缺少理由" in src["reason"]
 
             entries = parse_json_block(asset_dir / "gap-report.md")["entries"]

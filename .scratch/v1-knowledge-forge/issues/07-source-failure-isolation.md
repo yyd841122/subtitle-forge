@@ -6,14 +6,14 @@
 
 **Blocked by（硬依赖）:** 02。
 
-**Status:** in progress (2026-09-02 开工；票内裁定已落，见下方记录)
+**Status:** done (2026-09-02, Codex 独立复审 BLOCKED（1 blocking：已知单元须以单元级 failed 对账）→ 修复 → focused closure review **READY / 0 blocking / 0 findings**，checklist A/B/D/F 全过)
 
 **Materialized from:** plan v2.2 票 07（ADR-0007）
 
 **Acceptance（端到端断言，只对外部产物）:**
-- [ ] 三 Source、第二个提炼替身抛错 → ep01/ep03 正常产出且发布集含其单元；ep02 `failed` + gap `execution_failure` 条目（含原因）
-- [ ] 退出码非 0 且输出可辨部分失败（具体退出码票内裁定并断言）；全部 Source 均有状态（无静默消失）
-- [ ] 全局错误场景钉死一个具体 fixture（资产目录不可写）→ 明确中止，无半成品全局产物
+- [x] 三 Source、第二个提炼替身抛错 → ep01/ep03 正常产出且发布集含其单元；ep02 `failed` + gap `execution_failure` 条目（含原因）
+- [x] 退出码非 0 且输出可辨部分失败（具体退出码票内裁定并断言）；全部 Source 均有状态（无静默消失）
+- [x] 全局错误场景钉死一个具体 fixture（资产目录不可写）→ 明确中止，无半成品全局产物
 
 **Implementation / code anchors:** `pipeline.run_corpus` 的 Source 循环（Ticket 01 基线无隔离，异常直接冒泡）；`cli.py` 错误输出。
 
@@ -64,3 +64,34 @@
 > - **失败 Source 不写忠实层资产**：忠实层语义是「忠实表达来源内容」
 >   的提炼产物；为失败 Source 写空资产会与「提炼完成但产出为空」（08
 >   票保守提炼场景）不可辨。其下落由运行摘要 + 缺口报告显性承载。
+
+> 完成记录（2026-09-02 done）：
+> - 实现：`pipeline.py`——Source 处理作用域整体提取为 `_process_source`
+>   （产物性状态局部积累，完成才并入全局）+ `_SourceProgress` 对账进度
+>   载体（提炼产物物化 + unit_id 形状校验，防一次性迭代器与畸形产物
+>   击穿隔离）；`cli.py`——退出码契约 0/1/2/3 + 全局错误三判据处置 +
+>   替身装配校验（缺失/类/协程/元数）+ 部分失败 stdout；`assets.py`——
+>   失败 Source 无忠实层资产 + 同目录复用时移除旧产物；
+>   `artifacts.py`——`GAP_OUTCOME_EXECUTION_FAILURE` 下落措辞。
+> - 测试：`tests/test_source_failure_isolation.py` 21 项（验收 4 + 行为
+>   8 + 触界 9，含生成器/畸形产物/装配 5 例回归）；03/05 票守卫测试
+>   改写为隔离后可观察形态（单元级 failed + 无缺理由条目）；02 票
+>   触界测试按其票面「隔离归 07 票」注记退役；空 Corpus 退出码 1→3。
+>   全量 87 passed。
+> - cc-suite audit 两轮（full，gpt-5.6-sol/high）：轮一 0 Critical /
+>   1 High / 4 Medium / 5 Low——9 修 1 declined（增量落盘回滚属
+>   Open Impl 5 后续票，AC 已钉死 fixture）；轮二（delta）0 Critical /
+>   1 High / 2 Medium / 3 Low——全修（提炼产物物化+校验、装配校验
+>   加深、混合下落原子测试）。记录：
+>   `.cc-suite/audits/audit-20260902-ticket07-findings.md`。
+> - Codex 独立复审：轮一 BLOCKED（1 blocking——已知单元静默消失违反
+>   A3/R4.3/PRODUCT，初版原子裁定过宽；2 non-blocking 均修）；
+>   blocking 修复（单元级 failed 对账）后 focused closure review：
+>   **READY / 0 blocking / 0 findings**，checklist A/B/D/F 全过，且其
+>   自行执行全量测试 87 passed。review thread：
+>   01a06233-ee13-7102-a691-4326715122fa（closure 轮 job
+>   review-mtkqvtul-qsuovy）；audit 轮一 thread
+>   01a06225-e1f5-76e2-8e6d-acb5dc1d1f91、轮二 thread
+>   01a0647a-e988-7d11-9312-9944f1048d7a。
+> - 遗留 non-blocking：无（closure review 0 findings）。已 declined
+>   的审计发现（中途写失败无回滚）为已知边界，归 Open Impl 5 后续票。

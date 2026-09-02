@@ -252,6 +252,55 @@ def make_units_a1_fake_quote() -> tuple[KnowledgeUnit, ...]:
     )
 
 
+# ---------------------------------------------------------------------------
+# Ticket 05 受控输入：待复核（inconclusive）语义（A14 无法可靠判定）
+# ---------------------------------------------------------------------------
+
+
+def make_units_a14_inconclusive() -> tuple[KnowledgeUnit, ...]:
+    """A14（待复核语义）场景的三个单元：u-002 的引用真实存在于原文
+    （锚定 seg2），但陈述在两个 Segment（基准情形的写法 / 递归深度有限）
+    之间架起因果关系——原文分别提到两者、从未直接表述这层联系，它
+    既非逐字支持的转述（可通过）、也非明确越界的推广（可拒绝）：
+    是隐含结论还是超出范围，取决于解释性判断，推理上无法可靠判定。
+    推理审计替身据此对 u-002 预设 inconclusive + 理由（受控触发 05 票
+    语义：R4.4 的"无法可靠判定"，非低质量兜底）。u-001/u-003 陈述与
+    引用直接对应，照常通过——"其余单元不受影响"的对照组。"""
+
+    return (
+        KnowledgeUnit(
+            unit_id="u-001",
+            unit_type="claim",
+            statement="递归的核心结构是函数调用自身并逐步缩小问题规模",
+            source_reference=SourceReference(
+                segment_id=seg_id(1),
+                quoted_text=SEG_TEXTS[0],
+                locator=TimeRangeLocator(start_ms=1000, end_ms=6000),
+            ),
+        ),
+        KnowledgeUnit(
+            unit_id="u-002",
+            unit_type="claim",
+            statement="写对基准情形是递归深度保持有限的前提",
+            source_reference=SourceReference(
+                segment_id=seg_id(2),
+                quoted_text=SEG_TEXTS[1],
+                locator=TimeRangeLocator(start_ms=7500, end_ms=13200),
+            ),
+        ),
+        KnowledgeUnit(
+            unit_id="u-003",
+            unit_type="conclusion",
+            statement="递归深度必须有限，否则栈会溢出",
+            source_reference=SourceReference(
+                segment_id=seg_id(3),
+                quoted_text=SEG_TEXTS[2],
+                locator=TimeRangeLocator(start_ms=14000, end_ms=18300),
+            ),
+        ),
+    )
+
+
 # 受控 ASS（换行排版）：seg2 文本含字面 \N 换行——解析后 Segment.text
 # 保留换行字符（ass.py 裁定：规范化方式由比对端决定），供忠实性比对
 # 最小规范化容差的受控验证（04 票内裁定的初始算法）。

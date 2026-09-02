@@ -17,7 +17,7 @@
 忠实性审计含纯程序比对部分（R3.1、Implementation Decisions 5），
 不经由生成同一内容的替身自评——程序比对门在管线发布集准入前落地
 （pipeline.py，A1），不经任何认知角色；本模块只承载认知角色。推理
-审计替身的结论（通过/拒绝）经它确定性触发（A2）。
+审计替身的结论（通过/拒绝/待复核）经它确定性触发（A2、A14）。
 """
 
 from __future__ import annotations
@@ -64,8 +64,9 @@ class UnitAuditVerdict:
     """审查角色对单个知识单元的结论。
 
     通过 → 进入可信发布集候选；拒绝 → 不进入、缺口报告留"审计拒绝"
-    条目（已落地）；不确定 → 待复核（R4.4 严格语义：无法可靠判定，
-    非低质量兜底；其下落由后续票落地）。
+    条目（03 票已落地）；不确定 → 待复核（R4.4 严格语义：无法可靠
+    判定，非低质量兜底；05 票已落地——单元 needs_review、不进发布集、
+    运行摘要记录本结论的 reason）。
     """
 
     verdict: str  # "pass" | "reject" | "inconclusive"
@@ -136,8 +137,10 @@ class StubExtractor:
 class StubInferenceAuditor:
     """推理审计替身：按 unit_id 预设结论；未预设的单元默认通过。
 
-    分别设定行为 = 对每个 unit_id 可独立给出 pass/reject/inconclusive，
-    拒绝须带理由（缺口报告"审计拒绝"条目的来源，R4.2、A2）。
+    分别设定行为 = 对每个 unit_id 可独立给出 pass/reject/inconclusive。
+    拒绝须带理由（缺口报告"审计拒绝"条目的来源，R4.2、A2）；不确定
+    也须带理由（运行摘要 needs_review 条目的来源，R4.4、A14——理由是
+    "为什么无法判定"的陈述，非系统兜底措辞）。
     """
 
     verdicts: dict[str, UnitAuditVerdict] = None  # type: ignore[assignment]

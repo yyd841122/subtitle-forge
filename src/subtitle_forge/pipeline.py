@@ -14,14 +14,23 @@ Q27 裁决：具体阶段拓扑不是产品强制架构，本模块的内部函�
   记 rejected。
 
 两类拒绝共用同一拒绝下落机制（03 票）。含被拒单元的 Source 仍为
-success（A4：全部单元有明确下落即成功）。待复核（inconclusive）与
-无引用单元的下落语义仍由后续票落地——本模块对这些路径显式挡住
+success（A4：全部单元有明确下落即成功）。
+
+待复核（inconclusive，05 票）：推理审计结论"不确定"的单元是**未决**
+而非异常——单元记 needs_review、不进发布集（无法可靠判定 ⇒ 不得
+放行），运行摘要记录来自替身结论的明确理由（R4.4 严格语义：无法
+可靠判定，非低质量兜底；A14）；不进缺口报告（票内裁定：A14 只要求
+运行摘要有下落，缺口报告只记异常与缺口，且 R4.6 要求拒绝与待复核
+不混用）。任一单元 needs_review ⇒ 该 Source 整体 needs_review
+（R4.6：存在未获最终结论、需后续人工或系统判断的问题）。
+
+无引用单元的下落语义仍由后续票落地——本模块对该路径显式挡住
 （fail loud），不做半成品处理，避免静默产出语义错误的产物。
 
 角色行为的可观察性（Testing Decisions：替身分别设定行为，断言只针对
 外部产物）：提炼行为体现在可信发布集内容；推理审计的结论理由（通过/
-拒绝）记录进运行摘要，拒绝另留缺口条目；覆盖审计结论记录进运行
-摘要——三个认知角色的行为变化都无需窥探内部即可辨别。程序门的结论
+拒绝/待复核）记录进运行摘要，拒绝另留缺口条目；覆盖审计结论记录进
+运行摘要——三个认知角色的行为变化都无需窥探内部即可辨别。程序门的结论
 （忠实性比对成立与否）不经认知角色，直接以同一下落机制可观察。
 """
 
@@ -34,7 +43,9 @@ from dataclasses import dataclass, field
 from .artifacts import (
     GAP_AUDIT_REJECTION,
     GAP_OUTCOME_AUDIT_REJECTION,
+    SOURCE_STATUS_NEEDS_REVIEW,
     SOURCE_STATUS_SUCCESS,
+    UNIT_STATUS_NEEDS_REVIEW,
     UNIT_STATUS_PASSED,
     UNIT_STATUS_REJECTED,
     GapEntry,
@@ -197,10 +208,38 @@ def run_corpus(corpus: Corpus, roles: CognitiveRoles) -> RunOutcome:
                 _reject_unit(source, unit, verdict.reason, gaps, units_record)
                 continue
 
+            if verdict.verdict == "inconclusive":
+                # 待复核下落（05 票机制，R4.4、R4.6、A14）："不确定"的
+                # 单元是未决而非异常——不进可信发布集（无法可靠判定 ⇒
+                # 不得放行），运行摘要记 needs_review，理由取自推理审计
+                # 结论本身（R4.4 严格语义的来源要求：理由是替身"为什么
+                # 无法判定"的陈述，不是系统对质量的兜底评语）。
+                # 票内裁定：不留缺口条目——A14 只要求运行摘要有下落，
+                # 缺口报告只记异常与缺口（裁决 6），待复核是"未决"而非
+                # 异常，且 R4.6 要求拒绝与待复核不混用。
+                # 票内裁定（优先序，与 03 票拒绝先例一致）：待复核是
+                # 完整下落，先于忠实性程序门与无引用挡板生效（单单元
+                # 单条下落）；对未决单元跑程序门只会制造第二条下落
+                # （拒绝与待复核混用，R4.6 禁止）。
+                if not verdict.reason.strip():
+                    # A14 / R4.4：运行摘要须记录待复核的明确理由，且理由
+                    # 只能来自替身结论（不容系统兜底措辞）。不带（可读）
+                    # 理由是角色契约破坏，fail loud（与 03 票拒绝缺理由
+                    # 守卫对称）。
+                    raise ValueError(
+                        f"推理审计对知识单元 {unit.unit_id!r} 返回待复核结论但缺少理由："
+                        "运行摘要须记录待复核的明确理由（A14、R4.4）"
+                    )
+                units_record.append(
+                    UnitRecord(
+                        unit_id=unit.unit_id, status=UNIT_STATUS_NEEDS_REVIEW, reason=verdict.reason
+                    )
+                )
+                continue
+
             if verdict.verdict != "pass":
-                # 待复核（inconclusive）的严格语义（R4.4：无法可靠判定，
-                # 非低质量兜底）由后续票落地；本票显式挡住，不产出语义
-                # 错误的产物。
+                # 结论值域守卫（fail loud）：pass/reject/inconclusive 之外
+                # 的结论值是角色契约破坏，不得静默当作任何已知下落处置。
                 raise OutOfScopeVerdictError(unit.unit_id, verdict.verdict)
             if unit.source_reference is None:
                 # R2.4：无有效 Source Reference 不得进入发布集，且须有
@@ -228,10 +267,26 @@ def run_corpus(corpus: Corpus, roles: CognitiveRoles) -> RunOutcome:
         # 覆盖结论进运行摘要（可观察通道）；"覆盖存疑"缺口条目（R4.2
         # 缺口类别）与指标成对（ADR-0003）由后续票落地。
 
+        # —— Source 级实体状态（R4.6 可观察语义）——
+        # 票内裁定（05 票初始裁定）：任一单元 needs_review ⇒ Source
+        # needs_review（存在未获最终结论、需后续人工或系统判断的问题，
+        # 尚不能视为完全 settled）。被拒单元是已决下落，不妨碍 success
+        # （A4）；Source 失败（07 票）是流程未完整完成，另属失败路径。
+        pending_review_unit_ids = [
+            u.unit_id for u in units_record if u.status == UNIT_STATUS_NEEDS_REVIEW
+        ]
+        if pending_review_unit_ids:
+            source_status = SOURCE_STATUS_NEEDS_REVIEW
+            source_reason = f"存在未获最终结论的待复核单元：{'、'.join(pending_review_unit_ids)}"
+        else:
+            source_status = SOURCE_STATUS_SUCCESS
+            source_reason = ""
+
         source_records.append(
             SourceRecord(
                 source_id=source.source_id,
-                status=SOURCE_STATUS_SUCCESS,
+                status=source_status,
+                reason=source_reason,
                 units=tuple(units_record),
                 coverage=coverage,
             )
@@ -250,10 +305,16 @@ def run_corpus(corpus: Corpus, roles: CognitiveRoles) -> RunOutcome:
 
 
 class OutOfScopeVerdictError(NotImplementedError):
-    """审计拒绝之外仍未实现下落路径的显式挡板（fail loud，不静默降级）。"""
+    """仍未实现下落路径的显式挡板（fail loud，不静默降级）：无引用单元
+    （R2.4，06 票）与结论值域外的结论值（角色契约破坏——"低可信"只是
+    风险信号、不是结论值或状态，R3.8）。"""
 
     def __init__(self, unit_id: str, verdict: str):
-        super().__init__(
-            f"知识单元 {unit_id!r} 走入未实现的下落路径（{verdict!r}）："
-            "待复核（R4.4）与无引用（R2.4）单元的完整下落语义由后续票落地"
-        )
+        if verdict == "missing_source_reference":
+            detail = "无引用（R2.4）单元的完整下落语义由后续票落地"
+        else:
+            detail = (
+                f"结论值 {verdict!r} 不在推理审计结论值域"
+                "（pass / reject / inconclusive）内"
+            )
+        super().__init__(f"知识单元 {unit_id!r} 走入未实现的下落路径（{verdict!r}）：{detail}")

@@ -317,9 +317,11 @@ class TestFaithfulnessBoundaries:
         assert entries[0]["subject"] == "u-002"
         assert entries[0]["reason"] == "受控：推理审计拒绝假引用单元"
 
-    def test_inconclusive_still_fails_loud(self, tmp_path, ass_file):
-        """待复核（inconclusive）语义不属本票（05 票）：假引用 + 不确定
-        结论 → 显式挡板抛错；程序门只守"通过"路径，不处置非通过结论。"""
+    def test_inconclusive_keeps_single_disposition(self, tmp_path, ass_file):
+        """票内裁定（单单元单条下落，05 票语义落地后）：假引用 + 不确定
+        结论 → 待复核下落（运行摘要 needs_review），不经忠实性比对留
+        拒绝条目——程序门只守"通过"路径；一个单元恰有一个状态与一条
+        下落（对账 A3），拒绝与待复核不混用（R4.6）。"""
 
         roles = CognitiveRoles(
             extractor=StubExtractor(script={"ep01": make_units_a1_fake_quote()[:2]}),
@@ -330,8 +332,16 @@ class TestFaithfulnessBoundaries:
             ),
             coverage_auditor=StubCoverageAuditor(),
         )
-        with pytest.raises(OutOfScopeVerdictError, match="u-002.*inconclusive"):
-            run_cli(ass_file, tmp_path / "assets", roles, module_name="inconclusive_fake_stub_roles")
+        asset_dir = run_and_write(tmp_path, ass_file, roles)
+
+        assert {e["unit_id"] for e in parse_json_block(asset_dir / "trusted-set.md")["entries"]} == {
+            "u-001"
+        }
+        assert parse_json_block(asset_dir / "gap-report.md")["entries"] == []
+        src = parse_json_block(asset_dir / "run-summary.md")["sources"][0]
+        unit_records = {u["unit_id"]: u for u in src["units"]}
+        assert unit_records["u-002"]["status"] == "needs_review"
+        assert unit_records["u-002"]["reason"] == "受控：无法可靠判定"
 
     def test_missing_reference_still_fails_loud(self, tmp_path, ass_file):
         """无 Source Reference 单元的下落不属本票（06 票）：通过结论 +

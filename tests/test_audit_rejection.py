@@ -202,9 +202,10 @@ class TestAuditRejectionBoundaries:
                 main(["run", str(ass_file.parent), str(tmp_path / "assets"),
                       "--stub-module", "silent_reject_stub_roles"])
 
-    def test_inconclusive_still_fails_loud(self, tmp_path, ass_file):
-        """待复核（inconclusive）语义不属本票（05 票）：替身返回不确定
-        结论 → 显式挡板抛错，不得静默处置。"""
+    def test_inconclusive_not_recorded_as_audit_rejection(self, tmp_path, ass_file):
+        """触界（05 票语义落地后的 03 界线）：不确定结论的单元走待复核
+        下落（运行摘要 needs_review），不留 audit_rejection 条目——拒绝
+        与待复核不得混用（R4.6），拒绝机制只处置"拒绝"结论。"""
 
         roles = CognitiveRoles(
             extractor=StubExtractor(script={"ep01": make_units_with_time_range()[:1]}),
@@ -213,14 +214,11 @@ class TestAuditRejectionBoundaries:
             ),
             coverage_auditor=StubCoverageAuditor(),
         )
-        mod = types.ModuleType("inconclusive_stub_roles")
-        mod.stub_roles = lambda: roles  # type: ignore[attr-defined]
-        sys.modules["inconclusive_stub_roles"] = mod
-        from subtitle_forge.cli import main
+        asset_dir = run_and_write(tmp_path, ass_file, roles)
 
-        with pytest.raises(OutOfScopeVerdictError, match="u-001.*inconclusive"):
-            main(["run", str(ass_file.parent), str(tmp_path / "assets"),
-                  "--stub-module", "inconclusive_stub_roles"])
+        assert parse_json_block(asset_dir / "gap-report.md")["entries"] == []
+        src = parse_json_block(asset_dir / "run-summary.md")["sources"][0]
+        assert src["units"][0]["status"] == "needs_review"
 
     def test_missing_reference_still_fails_loud(self, tmp_path, ass_file):
         """无 Source Reference 单元的下落不属本票（06 票）：通过结论 +

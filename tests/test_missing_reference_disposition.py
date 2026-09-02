@@ -14,8 +14,6 @@ needs_review——rejected 是已决结论非未决问题）。断言只针对�
 
 from __future__ import annotations
 
-import sys
-import types
 from pathlib import Path
 
 from conftest import (
@@ -23,6 +21,7 @@ from conftest import (
     make_ep02_units,
     make_units_a17_no_reference,
     parse_json_block,
+    run_cli_with_roles,
     seg_id,
 )
 
@@ -46,15 +45,9 @@ def run_cli(
     roles: CognitiveRoles,
     module_name: str = "missing_reference_stub_roles",
 ) -> int:
-    """注册替身模块并执行 CLI，返回退出码。"""
+    """注册替身模块并执行 CLI，返回退出码（共享通道，见 conftest）。"""
 
-    mod = types.ModuleType(module_name)
-    mod.stub_roles = lambda: roles  # type: ignore[attr-defined]
-    sys.modules[module_name] = mod
-    from subtitle_forge.cli import main
-
-    corpus_dir = ass_file_or_dir.parent if ass_file_or_dir.is_file() else ass_file_or_dir
-    return main(["run", str(corpus_dir), str(asset_dir), "--stub-module", module_name])
+    return run_cli_with_roles(ass_file_or_dir, asset_dir, roles, module_name)
 
 
 def run_and_write(tmp_path: Path, ass_file: Path, roles: CognitiveRoles) -> Path:

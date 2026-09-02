@@ -10,8 +10,6 @@ quoted_text 无法在所指 Segment 原文中程序比对成立的单元也不�
 
 from __future__ import annotations
 
-import sys
-import types
 from pathlib import Path
 
 from conftest import (
@@ -19,6 +17,7 @@ from conftest import (
     make_units_a1_fake_quote,
     make_units_newline_variants,
     parse_json_block,
+    run_cli_with_roles,
     seg_id,
 )
 
@@ -42,14 +41,9 @@ def run_cli(
     roles: CognitiveRoles,
     module_name: str = "faithfulness_stub_roles",
 ) -> int:
-    """注册替身模块并执行 CLI，返回退出码。"""
+    """注册替身模块并执行 CLI，返回退出码（共享通道，见 conftest）。"""
 
-    mod = types.ModuleType(module_name)
-    mod.stub_roles = lambda: roles  # type: ignore[attr-defined]
-    sys.modules[module_name] = mod
-    from subtitle_forge.cli import main
-
-    return main(["run", str(ass_file.parent), str(asset_dir), "--stub-module", module_name])
+    return run_cli_with_roles(ass_file, asset_dir, roles, module_name)
 
 
 def run_and_write(tmp_path: Path, ass_file: Path, roles: CognitiveRoles) -> Path:

@@ -14,13 +14,16 @@ needs_review、不进可信发布集、运行摘要记录明确理由（理由�
 
 from __future__ import annotations
 
-import sys
-import types
 from pathlib import Path
 
 import pytest
 
-from conftest import make_units_a14_inconclusive, make_units_with_time_range, parse_json_block
+from conftest import (
+    make_units_a14_inconclusive,
+    make_units_with_time_range,
+    parse_json_block,
+    run_cli_with_roles,
+)
 
 from subtitle_forge.model import KnowledgeUnit
 from subtitle_forge.pipeline import InvalidAuditVerdictError
@@ -62,15 +65,9 @@ def run_cli(
     module_name: str = "needs_review_stub_roles",
 ) -> int:
     """注册替身模块并执行 CLI，返回退出码（不断言结果——供预期非零或
-    预期抛错的触界测试复用同一注册路径）。"""
+    预期抛错的触界测试复用同一注册路径；共享通道，见 conftest）。"""
 
-    mod = types.ModuleType(module_name)
-    mod.stub_roles = lambda: roles  # type: ignore[attr-defined]
-    sys.modules[module_name] = mod
-    from subtitle_forge.cli import main
-
-    corpus_dir = ass_file_or_dir.parent if ass_file_or_dir.is_file() else ass_file_or_dir
-    return main(["run", str(corpus_dir), str(asset_dir), "--stub-module", module_name])
+    return run_cli_with_roles(ass_file_or_dir, asset_dir, roles, module_name)
 
 
 def run_and_write(tmp_path: Path, ass_file: Path, roles: CognitiveRoles) -> Path:

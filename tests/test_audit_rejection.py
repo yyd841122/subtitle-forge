@@ -11,13 +11,16 @@ success（A4：全部单元有明确下落即成功）。断言只针对外部�
 
 from __future__ import annotations
 
-import sys
-import types
 from pathlib import Path
 
 import pytest
 
-from conftest import make_units_a2_overreach, make_units_with_time_range, parse_json_block
+from conftest import (
+    make_units_a2_overreach,
+    make_units_with_time_range,
+    parse_json_block,
+    run_cli_with_roles,
+)
 
 from subtitle_forge.model import KnowledgeUnit
 from subtitle_forge.roles import (
@@ -48,16 +51,11 @@ def rejecting_roles() -> CognitiveRoles:
 
 
 def run_and_write(tmp_path: Path, ass_file: Path, roles: CognitiveRoles) -> Path:
-    """走 CLI 端到端（含落盘），返回资产目录。"""
+    """走 CLI 端到端（含落盘，共享通道见 conftest），返回资产目录。"""
 
     tmp_path.mkdir(parents=True, exist_ok=True)
     asset_dir = tmp_path / "assets"
-    mod = types.ModuleType("reject_stub_roles")
-    mod.stub_roles = lambda: roles  # type: ignore[attr-defined]
-    sys.modules["reject_stub_roles"] = mod
-    from subtitle_forge.cli import main
-
-    rc = main(["run", str(ass_file.parent), str(asset_dir), "--stub-module", "reject_stub_roles"])
+    rc = run_cli_with_roles(ass_file.parent, asset_dir, roles, "reject_stub_roles")
     assert rc == 0, "含被拒单元的运行应成功（A4：全部单元有明确下落即成功）"
     return asset_dir
 
@@ -146,7 +144,9 @@ class TestAuditRejectionAcceptance:
     def test_reject_takes_precedence_over_missing_reference(self, tmp_path, ass_file):
         """票内裁定（优先序）：被拒且无引用的单元走拒绝下落——审计拒绝
         本身是完整下落（不进发布集 + 留痕，R2.4 已满足），不因缺引用再
-        走 06 票无引用门；无引用门只守"通过"路径。"""
+        走 06 票无引用门；无引用门只守"通过"路径。06 票落地后两条路径
+        的条目形态相同，reason 是可辨差异：断言理由等于替身结论（而非
+        无引用门的「无来源引用」前缀），证明生效的是推理审计结论。"""
 
         no_ref_unit = KnowledgeUnit(
             unit_id="u-noref-rejected",
@@ -169,9 +169,11 @@ class TestAuditRejectionAcceptance:
         entries = parse_json_block(asset_dir / "gap-report.md")["entries"]
         assert [e["subject"] for e in entries] == ["u-noref-rejected"]
         assert entries[0]["category"] == "audit_rejection"
+        assert entries[0]["reason"] == "受控：拒绝无引用单元"
         src = parse_json_block(asset_dir / "run-summary.md")["sources"][0]
         assert src["status"] == "success"
         assert src["units"][0]["status"] == "rejected"
+        assert src["units"][0]["reason"] == "受控：拒绝无引用单元"
 
 
 # ---------------------------------------------------------------------------
@@ -192,14 +194,10 @@ class TestAuditRejectionBoundaries:
                 ),
                 coverage_auditor=StubCoverageAuditor(),
             )
-            mod = types.ModuleType("silent_reject_stub_roles")
-            mod.stub_roles = lambda: roles  # type: ignore[attr-defined]
-            sys.modules["silent_reject_stub_roles"] = mod
-            from subtitle_forge.cli import main
-
             with pytest.raises(ValueError, match="u-001.*缺少理由"):
-                main(["run", str(ass_file.parent), str(tmp_path / "assets"),
-                      "--stub-module", "silent_reject_stub_roles"])
+                run_cli_with_roles(
+                    ass_file, tmp_path / "assets", roles, "silent_reject_stub_roles"
+                )
 
     def test_inconclusive_not_recorded_as_audit_rejection(self, tmp_path, ass_file):
         """触界（05 票语义落地后的 03 界线）：不确定结论的单元走待复核

@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import re
+import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -20,6 +22,7 @@ from subtitle_forge.model import (
     TextPositionLocator,
     TimeRangeLocator,
 )
+from subtitle_forge.roles import CognitiveRoles
 
 # ---------------------------------------------------------------------------
 # 外部产物解析辅助（机器是一级消费者：不 import 内部结构）
@@ -39,6 +42,28 @@ def parse_json_block(path: Path) -> dict:
 
 def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
+
+
+def run_cli_with_roles(
+    corpus_path: Path,
+    asset_dir: Path,
+    roles: CognitiveRoles,
+    module_name: str,
+) -> int:
+    """注册替身模块并执行 CLI（含落盘），返回退出码——各票测试共用的
+    端到端执行通道（替身注入是测试输入的一部分，Testing Decisions）。
+
+    ``corpus_path`` 可为单个 .ass 文件或 Corpus 目录。各票测试经本地
+    包装（默认模块名 + 票内断言）调用，不在测试文件间重复注册管线。
+    """
+
+    mod = types.ModuleType(module_name)
+    mod.stub_roles = lambda: roles  # type: ignore[attr-defined]
+    sys.modules[module_name] = mod
+    from subtitle_forge.cli import main
+
+    corpus_dir = corpus_path.parent if corpus_path.is_file() else corpus_path
+    return main(["run", str(corpus_dir), str(asset_dir), "--stub-module", module_name])
 
 # 一集"课程"的受控 ASS 内容：三条知识性 Dialogue（覆盖 claim / method /
 # conclusion 三种知识单元类型，证明 R2.2 类型不限于 Claim）。

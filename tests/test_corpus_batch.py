@@ -14,8 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import make_ep02_units, make_units_with_time_range
-from test_walking_skeleton import parse_json_block
+from conftest import make_ep02_units, make_units_with_time_range, parse_json_block
 
 from subtitle_forge.roles import (
     CognitiveRoles,
@@ -107,7 +106,7 @@ class TestCorpusBatchAcceptance:
 
     def test_run_summary_both_sources_reconciled(self, two_source_corpus, tmp_path):
         """AC3：两个 Source 均 success、各自单元状态齐全（对账覆盖全部
-        Source，A3 运行内部分）；处理顺序为文件名序（票内裁定确认）；
+        Source，A3 运行内部分）；处理顺序为文件名序（票内裁定）；
         gap-report 为空。"""
 
         _, asset_dir = run_batch(two_source_corpus, tmp_path, batch_roles())
@@ -138,7 +137,8 @@ class TestBatchBoundaries:
             inference_auditor=StubInferenceAuditor(),
             coverage_auditor=StubCoverageAuditor(),
         )
-        with pytest.raises(AssertionError):
+        # 匹配 unscripted ep02 的具体错误，防止无关断言失败误判为通过
+        with pytest.raises(AssertionError, match="ep02"):
             run_batch(two_source_corpus, tmp_path, partial)
 
     def test_empty_corpus_still_rejected(self, tmp_path):

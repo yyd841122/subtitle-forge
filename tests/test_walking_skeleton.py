@@ -7,8 +7,6 @@
 
 from __future__ import annotations
 
-import json
-import re
 import sys
 import types
 from pathlib import Path
@@ -17,6 +15,8 @@ from conftest import (
     SEG_TEXTS,
     make_unit_text_position,
     make_units_with_time_range,
+    parse_json_block,
+    read_text,
 )
 
 from subtitle_forge.roles import (
@@ -26,24 +26,6 @@ from subtitle_forge.roles import (
     StubInferenceAuditor,
     UnitAuditVerdict,
 )
-
-
-# ---------------------------------------------------------------------------
-# 辅助：从落盘产物中解析结构（模拟"机器是一级消费者"——不 import 内部结构）
-# ---------------------------------------------------------------------------
-
-_JSON_BLOCK_RE = re.compile(r"```json\n(.*?)\n```", re.DOTALL)
-
-
-def parse_json_block(path: Path) -> dict:
-    text = path.read_text(encoding="utf-8")
-    blocks = _JSON_BLOCK_RE.findall(text)
-    assert blocks, f"{path} 应含机器可解析的 json 代码块"
-    return json.loads(blocks[0])
-
-
-def read_text(path: Path) -> str:
-    return path.read_text(encoding="utf-8")
 
 
 def run_and_write(tmp_path: Path, ass_file: Path, roles: CognitiveRoles) -> Path:
@@ -225,7 +207,7 @@ class TestRoleStubInjection:
     def test_coverage_auditor_behavior_varies_artifacts(self, tmp_path, ass_file):
         """覆盖审计替身单独设定行为（其余角色不变）：结论进运行摘要的
         coverage_audit 字段——01 骨架下覆盖良好与否不改变发布集（覆盖
-        存疑的缺口语义归 08 票），但结论本身可观察。"""
+        存疑缺口条目属缺口类别之一，R4.2；20 票落地），但结论本身可观察。"""
 
         units = self.UNITS()
         from subtitle_forge.roles import CoverageVerdict
@@ -287,7 +269,8 @@ class TestLayerBoundaries:
 
     def test_review_layer_separate_from_faithful(self, tmp_path, ass_file):
         """审查层独立声明且与忠实层分离（R2.5 最小形态；01 骨架无正式
-        Review Note——09 票产出，此处只验证分离的组织边界成立）。"""
+        Review Note——正式 Review Note 由审查环节产出，R3.6，18 票落地，
+        此处只验证分离的组织边界成立）。"""
 
         asset_dir = run_and_write(tmp_path, ass_file, default_roles(make_units_with_time_range()))
         org = parse_json_block(asset_dir / "run-summary.md")["asset_organization"]

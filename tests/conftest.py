@@ -1,11 +1,15 @@
-"""共享 fixture：受控 ASS Source 与按认知角色独立注入的确定性替身。
+"""共享 fixture 与测试辅助：受控 ASS Source、按认知角色独立注入的确定性
+替身、外部产物的解析辅助。
 
 测试输入的一部分（Testing Decisions）：替身按认知角色分别注入、分别
-设定行为。断言只针对外部产物。
+设定行为。断言只针对外部产物——``parse_json_block`` 模拟"机器是一级
+消费者"，从落盘 Markdown 的 json 代码块解析结构，不 import 内部结构。
 """
 
 from __future__ import annotations
 
+import json
+import re
 from pathlib import Path
 
 import pytest
@@ -16,6 +20,25 @@ from subtitle_forge.model import (
     TextPositionLocator,
     TimeRangeLocator,
 )
+
+# ---------------------------------------------------------------------------
+# 外部产物解析辅助（机器是一级消费者：不 import 内部结构）
+# ---------------------------------------------------------------------------
+
+_JSON_BLOCK_RE = re.compile(r"```json\n(.*?)\n```", re.DOTALL)
+
+
+def parse_json_block(path: Path) -> dict:
+    """从落盘产物的第一个 json 代码块解析结构；无代码块即失败。"""
+
+    text = path.read_text(encoding="utf-8")
+    blocks = _JSON_BLOCK_RE.findall(text)
+    assert blocks, f"{path} 应含机器可解析的 json 代码块"
+    return json.loads(blocks[0])
+
+
+def read_text(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
 
 # 一集"课程"的受控 ASS 内容：三条知识性 Dialogue（覆盖 claim / method /
 # conclusion 三种知识单元类型，证明 R2.2 类型不限于 Claim）。

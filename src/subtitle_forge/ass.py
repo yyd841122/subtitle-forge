@@ -81,7 +81,7 @@ def load_ass_file(path: Path) -> Source:
 def load_corpus(corpus_dir: Path) -> Corpus:
     """目录内全部 .ass 文件（按文件名排序）→ Corpus。
 
-    批处理顺序语义（票 02 票内裁定确认）：文件名序、确定性。R1.1：
+    批处理顺序语义（Ticket 02 票内裁定）：文件名序、确定性。R1.1：
     Corpus 是批处理单位——这里只做读取与排序，不预设跳过/运行范围
     控制等运行策略。
     """

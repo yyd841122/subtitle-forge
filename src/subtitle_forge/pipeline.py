@@ -13,8 +13,9 @@ Q27 裁决：具体阶段拓扑不是产品强制架构，本模块的内部函�
   audit_rejection 条目（含 Source、指向单元、原因、下落），运行摘要
   记 rejected。
 
-两类拒绝共用同一拒绝下落机制（03 票）。含被拒单元的 Source 仍为
-success（A4：全部单元有明确下落即成功）。
+三类拒绝共用同一拒绝下落机制（03 票）：推理审计拒绝、忠实性程序比对
+拒绝（04 票）、无引用门拒绝（06 票），reason 前缀可辨来源。含被拒单元
+（含无引用单元）的 Source 仍为 success（A4：全部单元有明确下落即成功）。
 
 待复核（inconclusive，05 票）：推理审计结论"不确定"的单元是**未决**
 而非异常——单元记 needs_review、不进发布集（无法可靠判定 ⇒ 不得
@@ -24,8 +25,12 @@ success（A4：全部单元有明确下落即成功）。
 不混用）。任一单元 needs_review ⇒ 该 Source 整体 needs_review
 （R4.6：存在未获最终结论、需后续人工或系统判断的问题）。
 
-无引用单元的下落语义仍由后续票落地——本模块对该路径显式挡住
-（fail loud），不做半成品处理，避免静默产出语义错误的产物。
+无引用门（06 票，R2.4、A17）：推理审计通过但无有效 Source Reference
+的单元不进可信发布集，以审计拒绝下落（票内裁定：rejected +
+audit_rejection——准入凭据缺失是准入问题而非执行失败，与 04 票程序门
+同族；Spec Impl 2 / ADR-0003）。明确不含：引用有效性分级体系不建——
+None 是唯一「无引用」形态，非 None 的引用缺陷（空引用 / segment 不存在
+/ 引用不在原文）由 04 票忠实性程序门处置；locator 校验不展开。
 
 角色行为的可观察性（Testing Decisions：替身分别设定行为，断言只针对
 外部产物）：提炼行为体现在可信发布集内容；推理审计的结论理由（通过/
@@ -130,6 +135,10 @@ _WHITESPACE_RUN_RE = re.compile(r"\s+")
 # 程序比对（区别于推理审计的拒绝）。
 _FAITHFULNESS_REASON_PREFIX = "忠实性比对不成立"
 
+# 无引用拒绝理由的稳定前缀（06 票）：缺口条目与运行摘要据此可辨原因
+# 来自 R2.4 无引用门（区别于推理审计与忠实性程序比对两类拒绝）。
+_MISSING_REFERENCE_REASON_PREFIX = "无来源引用"
+
 
 def _normalize_for_quote_match(text: str) -> str:
     """最小规范化：空白连续段折叠为单个空格，去首尾空白。"""
@@ -152,7 +161,7 @@ def _faithfulness_rejection_reason(
     """
 
     ref = unit.source_reference
-    assert ref is not None  # 调用方已挡住无引用单元（06 票挡板在前）
+    assert ref is not None  # 调用方已处置无引用单元（06 票无引用门在前）
     quote = _normalize_for_quote_match(ref.quoted_text)
     if not quote:
         return f"{_FAITHFULNESS_REASON_PREFIX}：引用文本为空，不构成逐字引用"
@@ -196,7 +205,7 @@ def run_corpus(corpus: Corpus, roles: CognitiveRoles) -> RunOutcome:
             if verdict.verdict == "reject":
                 # 票内裁定（优先序）：审计拒绝是完整下落——被拒单元不进
                 # 发布集（R2.4 已满足）且留痕（A11），故拒绝先于忠实性
-                # 程序门与无引用挡板生效（单单元单条下落）；后两者只守
+                # 程序门与无引用门生效（单单元单条下落）；后两者只守
                 # "通过"路径。
                 if not verdict.reason.strip():
                     # A11：缺口条目须含原因。拒绝结论不带（可读）理由是
@@ -218,7 +227,7 @@ def run_corpus(corpus: Corpus, roles: CognitiveRoles) -> RunOutcome:
                 # 缺口报告只记异常与缺口（裁决 6），待复核是"未决"而非
                 # 异常，且 R4.6 要求拒绝与待复核不混用。
                 # 票内裁定（优先序，与 03 票拒绝先例一致）：待复核是
-                # 完整下落，先于忠实性程序门与无引用挡板生效（单单元
+                # 完整下落，先于忠实性程序门与无引用门生效（单单元
                 # 单条下落）；对未决单元跑程序门只会制造第二条下落
                 # （拒绝与待复核混用，R4.6 禁止）。
                 if not verdict.reason.strip():
@@ -243,9 +252,25 @@ def run_corpus(corpus: Corpus, roles: CognitiveRoles) -> RunOutcome:
                 # 结论值，R3.8），不得静默当作任何已知下落处置。
                 raise InvalidAuditVerdictError(unit.unit_id, verdict.verdict)
             if unit.source_reference is None:
-                # R2.4：无有效 Source Reference 不得进入发布集，且须有
-                # 显性下落——该下落的完整语义（R2.4、A17）由后续票落地。
-                raise OutOfScopeVerdictError(unit.unit_id, "missing_source_reference")
+                # —— 无引用门（06 票，R2.4、A17）——
+                # 推理审计通过但无有效 Source Reference 的单元不进可信
+                # 发布集：Source Reference 是准入凭据（引用文本 + 定位，
+                # R2.4），缺失即拒绝。票内裁定：实体状态 rejected、Gap
+                # Category audit_rejection——无引用单元的提炼与审查流程
+                # 完整走完，缺陷在准入凭据而非执行（非 execution_failure），
+                # 属准入性拒绝（与 04 票程序门同族，Spec Impl 2 /
+                # ADR-0003），经 03 票统一下落机制留痕。优先序：晚于推理
+                # 审计结论处置（03/05 票先例），先于忠实性程序门——无引用
+                # 即无可比对文本，忠实性比对不适用。
+                _reject_unit(
+                    source,
+                    unit,
+                    f"{_MISSING_REFERENCE_REASON_PREFIX}：知识单元缺少 Source "
+                    "Reference，不构成可信发布集的准入凭据",
+                    gaps,
+                    units_record,
+                )
+                continue
 
             # —— 忠实性程序比对（发布集准入前的程序门，R3.1、A1）——
             # 审计门 = 程序比对 ∧ 推理审计：推理审计通过不足以放行——
@@ -303,17 +328,6 @@ def run_corpus(corpus: Corpus, roles: CognitiveRoles) -> RunOutcome:
         run_summary=summary,
         source_units=source_units,
     )
-
-
-class OutOfScopeVerdictError(NotImplementedError):
-    """仍未实现下落路径的显式挡板（fail loud，不静默降级）：无引用单元
-    （R2.4，06 票）——"未建成"的能力边界。"""
-
-    def __init__(self, unit_id: str, verdict: str):
-        super().__init__(
-            f"知识单元 {unit_id!r} 走入未实现的下落路径（{verdict!r}）："
-            "无引用（R2.4）单元的完整下落语义由后续票落地"
-        )
 
 
 class InvalidAuditVerdictError(ValueError):

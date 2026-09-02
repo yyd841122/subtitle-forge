@@ -301,6 +301,49 @@ def make_units_a14_inconclusive() -> tuple[KnowledgeUnit, ...]:
     )
 
 
+# ---------------------------------------------------------------------------
+# Ticket 06 受控输入：无 Source Reference 单元的下落（A17 / R2.4）
+# ---------------------------------------------------------------------------
+
+
+def make_units_a17_no_reference() -> tuple[KnowledgeUnit, ...]:
+    """A17（引用不变量）场景的三个单元：u-002 无 Source Reference——
+    陈述本身是正常的知识表达（提炼替身的完整产物，不是执行失败），
+    但缺少追溯锚点（引用文本 + 定位），不构成可信发布集的准入凭据；
+    u-001/u-003 带真实引用照常通过——"其余正常"的对照组。推理审计
+    替身对全部单元默认 pass（受控前提：无引用单元只可能被无引用门
+    处置，06 票场景）。"""
+
+    return (
+        KnowledgeUnit(
+            unit_id="u-001",
+            unit_type="claim",
+            statement="递归的核心结构是函数调用自身并逐步缩小问题规模",
+            source_reference=SourceReference(
+                segment_id=seg_id(1),
+                quoted_text=SEG_TEXTS[0],
+                locator=TimeRangeLocator(start_ms=1000, end_ms=6000),
+            ),
+        ),
+        KnowledgeUnit(
+            unit_id="u-002",
+            unit_type="method",
+            statement="求阶乘：先写基准情形，再递归调用自身",
+            source_reference=None,
+        ),
+        KnowledgeUnit(
+            unit_id="u-003",
+            unit_type="conclusion",
+            statement="递归深度必须有限，否则栈会溢出",
+            source_reference=SourceReference(
+                segment_id=seg_id(3),
+                quoted_text=SEG_TEXTS[2],
+                locator=TimeRangeLocator(start_ms=14000, end_ms=18300),
+            ),
+        ),
+    )
+
+
 # 受控 ASS（换行排版）：seg2 文本含字面 \N 换行——解析后 Segment.text
 # 保留换行字符（ass.py 裁定：规范化方式由比对端决定），供忠实性比对
 # 最小规范化容差的受控验证（04 票内裁定的初始算法）。

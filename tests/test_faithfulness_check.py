@@ -14,8 +14,6 @@ import sys
 import types
 from pathlib import Path
 
-import pytest
-
 from conftest import (
     SEG_TEXTS,
     make_units_a1_fake_quote,
@@ -25,7 +23,6 @@ from conftest import (
 )
 
 from subtitle_forge.model import KnowledgeUnit, SourceReference, TimeRangeLocator
-from subtitle_forge.pipeline import OutOfScopeVerdictError
 from subtitle_forge.roles import (
     CognitiveRoles,
     StubCoverageAuditor,
@@ -45,8 +42,7 @@ def run_cli(
     roles: CognitiveRoles,
     module_name: str = "faithfulness_stub_roles",
 ) -> int:
-    """注册替身模块并执行 CLI，返回退出码（不断言结果——供预期非零或
-    预期抛错的触界测试复用同一注册路径）。"""
+    """注册替身模块并执行 CLI，返回退出码。"""
 
     mod = types.ModuleType(module_name)
     mod.stub_roles = lambda: roles  # type: ignore[attr-defined]
@@ -343,10 +339,11 @@ class TestFaithfulnessBoundaries:
         assert unit_records["u-002"]["status"] == "needs_review"
         assert unit_records["u-002"]["reason"] == "受控：无法可靠判定"
 
-    def test_missing_reference_still_fails_loud(self, tmp_path, ass_file):
-        """无 Source Reference 单元的下落不属本票（06 票）：通过结论 +
-        无引用单元 → 显式挡板抛错；程序门不得拦截或前置处置该路径
-        （无引用单元没有可比对的 quoted_text，不属忠实性比对场景）。"""
+    def test_missing_reference_not_intercepted_by_faithfulness_gate(self, tmp_path, ass_file):
+        """触界（06 票无引用门落地后的 04 界线）：无引用单元没有可比对
+        的 quoted_text，不属忠实性比对场景——其拒绝理由是 06 票的
+        「无来源引用」前缀，不是「忠实性比对不成立」；程序门不得拦截
+        或前置处置该路径。"""
 
         no_ref_unit = KnowledgeUnit(
             unit_id="u-noref",
@@ -355,5 +352,10 @@ class TestFaithfulnessBoundaries:
             source_reference=None,
         )
         roles = pass_all_roles(single_unit(no_ref_unit))
-        with pytest.raises(OutOfScopeVerdictError, match="u-noref.*missing_source_reference"):
-            run_cli(ass_file, tmp_path / "assets", roles, module_name="noref_faithfulness_stub_roles")
+        asset_dir = run_and_write(tmp_path, ass_file, roles)
+
+        assert parse_json_block(asset_dir / "trusted-set.md")["entries"] == []
+        entry = parse_json_block(asset_dir / "gap-report.md")["entries"][0]
+        assert entry["subject"] == "u-noref"
+        assert entry["reason"].startswith("无来源引用")
+        assert not entry["reason"].startswith(FAITHFULNESS_REASON_PREFIX)

@@ -20,7 +20,6 @@ import pytest
 from conftest import make_units_a2_overreach, make_units_with_time_range, parse_json_block
 
 from subtitle_forge.model import KnowledgeUnit
-from subtitle_forge.pipeline import OutOfScopeVerdictError
 from subtitle_forge.roles import (
     CognitiveRoles,
     StubCoverageAuditor,
@@ -147,7 +146,7 @@ class TestAuditRejectionAcceptance:
     def test_reject_takes_precedence_over_missing_reference(self, tmp_path, ass_file):
         """票内裁定（优先序）：被拒且无引用的单元走拒绝下落——审计拒绝
         本身是完整下落（不进发布集 + 留痕，R2.4 已满足），不因缺引用再
-        挡板；missing_source_reference 挡板只守"通过"路径。"""
+        走 06 票无引用门；无引用门只守"通过"路径。"""
 
         no_ref_unit = KnowledgeUnit(
             unit_id="u-noref-rejected",
@@ -220,26 +219,7 @@ class TestAuditRejectionBoundaries:
         src = parse_json_block(asset_dir / "run-summary.md")["sources"][0]
         assert src["units"][0]["status"] == "needs_review"
 
-    def test_missing_reference_still_fails_loud(self, tmp_path, ass_file):
-        """无 Source Reference 单元的下落不属本票（06 票）：通过结论 +
-        无引用单元 → 显式挡板抛错，挡板保留。"""
 
-        no_ref_unit = KnowledgeUnit(
-            unit_id="u-noref",
-            unit_type="claim",
-            statement="基准情形使递归终止",
-            source_reference=None,
-        )
-        roles = CognitiveRoles(
-            extractor=StubExtractor(script={"ep01": (no_ref_unit,)}),
-            inference_auditor=StubInferenceAuditor(),
-            coverage_auditor=StubCoverageAuditor(),
-        )
-        mod = types.ModuleType("noref_stub_roles")
-        mod.stub_roles = lambda: roles  # type: ignore[attr-defined]
-        sys.modules["noref_stub_roles"] = mod
-        from subtitle_forge.cli import main
-
-        with pytest.raises(OutOfScopeVerdictError, match="u-noref.*missing_source_reference"):
-            main(["run", str(ass_file.parent), str(tmp_path / "assets"),
-                  "--stub-module", "noref_stub_roles"])
+# 06 票前置挡板（test_missing_reference_still_fails_loud）随无引用门
+# 落地而退役：无引用单元的下落由 test_missing_reference_disposition.py
+# 全面验收（rejected + audit_rejection + Source success）。

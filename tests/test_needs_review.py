@@ -23,7 +23,7 @@ import pytest
 from conftest import make_units_a14_inconclusive, make_units_with_time_range, parse_json_block
 
 from subtitle_forge.model import KnowledgeUnit
-from subtitle_forge.pipeline import InvalidAuditVerdictError, OutOfScopeVerdictError
+from subtitle_forge.pipeline import InvalidAuditVerdictError
 from subtitle_forge.roles import (
     CognitiveRoles,
     StubCoverageAuditor,
@@ -281,9 +281,9 @@ class TestNeedsReviewBoundaries:
 
     def test_inconclusive_takes_precedence_over_missing_reference(self, tmp_path, ass_file):
         """票内裁定（优先序，与 03 票拒绝先例一致）：待复核是完整下落
-        （不进发布集 + 摘要留痕），先于无引用挡板与忠实性程序门生效；
-        后两者只守"通过"路径。不确定且无引用的单元不再抛
-        missing_source_reference 挡板（06 票挡板保留给通过路径）。"""
+        （不进发布集 + 摘要留痕），先于无引用门与忠实性程序门生效；
+        后两者只守"通过"路径。不确定且无引用的单元不走 06 票无引用门
+        （无引用门只处置通过结论的单元）。"""
 
         no_ref_unit = KnowledgeUnit(
             unit_id="u-noref-inconclusive",
@@ -311,20 +311,7 @@ class TestNeedsReviewBoundaries:
         assert src["units"][0]["status"] == "needs_review"
         assert src["units"][0]["reason"] == "受控：无引用单元无法可靠判定"
 
-    def test_missing_reference_still_fails_loud(self, tmp_path, ass_file):
-        """无 Source Reference 单元的下落不属本票（06 票）：通过结论 +
-        无引用单元 → 显式挡板抛错，挡板保留。"""
 
-        no_ref_unit = KnowledgeUnit(
-            unit_id="u-noref",
-            unit_type="claim",
-            statement="基准情形使递归终止",
-            source_reference=None,
-        )
-        roles = CognitiveRoles(
-            extractor=StubExtractor(script={"ep01": (no_ref_unit,)}),
-            inference_auditor=StubInferenceAuditor(),
-            coverage_auditor=StubCoverageAuditor(),
-        )
-        with pytest.raises(OutOfScopeVerdictError, match="u-noref.*missing_source_reference"):
-            run_cli(ass_file, tmp_path / "assets", roles, module_name="noref_needs_review_roles")
+# 06 票前置挡板（test_missing_reference_still_fails_loud）随无引用门
+# 落地而退役：无引用单元的下落由 test_missing_reference_disposition.py
+# 全面验收（rejected + audit_rejection + Source success）。

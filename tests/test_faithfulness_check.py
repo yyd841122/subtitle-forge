@@ -39,17 +39,29 @@ from subtitle_forge.roles import (
 FAITHFULNESS_REASON_PREFIX = "忠实性比对不成立"
 
 
+def run_cli(
+    ass_file: Path,
+    asset_dir: Path,
+    roles: CognitiveRoles,
+    module_name: str = "faithfulness_stub_roles",
+) -> int:
+    """注册替身模块并执行 CLI，返回退出码（不断言结果——供预期非零或
+    预期抛错的触界测试复用同一注册路径）。"""
+
+    mod = types.ModuleType(module_name)
+    mod.stub_roles = lambda: roles  # type: ignore[attr-defined]
+    sys.modules[module_name] = mod
+    from subtitle_forge.cli import main
+
+    return main(["run", str(ass_file.parent), str(asset_dir), "--stub-module", module_name])
+
+
 def run_and_write(tmp_path: Path, ass_file: Path, roles: CognitiveRoles) -> Path:
     """走 CLI 端到端（含落盘），返回资产目录。"""
 
     tmp_path.mkdir(parents=True, exist_ok=True)
     asset_dir = tmp_path / "assets"
-    mod = types.ModuleType("faithfulness_stub_roles")
-    mod.stub_roles = lambda: roles  # type: ignore[attr-defined]
-    sys.modules["faithfulness_stub_roles"] = mod
-    from subtitle_forge.cli import main
-
-    rc = main(["run", str(ass_file.parent), str(asset_dir), "--stub-module", "faithfulness_stub_roles"])
+    rc = run_cli(ass_file, asset_dir, roles)
     assert rc == 0, "含忠实性被拒单元的运行应成功（A4：全部单元有明确下落即成功）"
     return asset_dir
 
@@ -141,6 +153,72 @@ class TestFaithfulnessGateBehavior:
         assert [e["subject"] for e in report["entries"]] == ["u-nl-alter"]
         assert report["entries"][0]["reason"].startswith(FAITHFULNESS_REASON_PREFIX)
 
+    def test_partial_substring_quote_passes(self, tmp_path, ass_file):
+        """引用文本可以是指片段的子串（不必整段逐字复述）——比对语义是
+        "存在于原文"，不是"等于原文"；部分引用同样成立。"""
+
+        partial = KnowledgeUnit(
+            unit_id="u-partial",
+            unit_type="claim",
+            statement="递归函数会调用自身",
+            source_reference=SourceReference(
+                segment_id=seg_id(1),
+                quoted_text="函数调用自身并逐步缩小问题规模",
+                locator=TimeRangeLocator(start_ms=2000, end_ms=5000),
+            ),
+        )
+        asset_dir = run_and_write(tmp_path, ass_file, pass_all_roles(single_unit(partial)))
+
+        assert {e["unit_id"] for e in parse_json_block(asset_dir / "trusted-set.md")["entries"]} == {
+            "u-partial"
+        }
+        assert parse_json_block(asset_dir / "gap-report.md")["entries"] == []
+
+    def test_whitespace_run_collapse_tolerated(self, tmp_path, ass_file):
+        """空白连续段折叠为单个空格：引用把原文的单个空格写成两个空格
+        （排版差异）仍比对成立——但这是排版容忍的上限。"""
+
+        double_space_quote = SEG_TEXTS[1].replace("基准情形 n", "基准情形  n")
+        assert double_space_quote != SEG_TEXTS[1]  # 受控前提：确实引入了排版差异
+        unit = KnowledgeUnit(
+            unit_id="u-ws-run",
+            unit_type="method",
+            statement="求阶乘：先写基准情形 n=0 返回 1，再递归调用自身",
+            source_reference=SourceReference(
+                segment_id=seg_id(2),
+                quoted_text=double_space_quote,
+                locator=TimeRangeLocator(start_ms=7500, end_ms=13200),
+            ),
+        )
+        asset_dir = run_and_write(tmp_path, ass_file, pass_all_roles(single_unit(unit)))
+
+        assert {e["unit_id"] for e in parse_json_block(asset_dir / "trusted-set.md")["entries"]} == {
+            "u-ws-run"
+        }
+
+    def test_meaningful_space_deletion_rejected(self, tmp_path, ass_file):
+        """空白数量的减少不是排版差异：删去有意义的单个空格
+        （"n 等于零"→"n等于零"）后引用与原文不再逐字对应——仍拒绝。
+        空白折叠不容忍空白的消失，只容忍连续段的等价展开。"""
+
+        no_space_quote = SEG_TEXTS[1].replace(" ", "")
+        unit = KnowledgeUnit(
+            unit_id="u-ws-gone",
+            unit_type="method",
+            statement="求阶乘：先写基准情形 n=0 返回 1，再递归调用自身",
+            source_reference=SourceReference(
+                segment_id=seg_id(2),
+                quoted_text=no_space_quote,
+                locator=TimeRangeLocator(start_ms=7500, end_ms=13200),
+            ),
+        )
+        asset_dir = run_and_write(tmp_path, ass_file, pass_all_roles(single_unit(unit)))
+
+        assert parse_json_block(asset_dir / "trusted-set.md")["entries"] == []
+        entry = parse_json_block(asset_dir / "gap-report.md")["entries"][0]
+        assert entry["subject"] == "u-ws-gone"
+        assert entry["reason"].startswith(FAITHFULNESS_REASON_PREFIX)
+
     def test_comparison_anchored_to_referenced_segment(self, tmp_path, ass_file):
         """比对基准是所指 Segment 的原文（票 anchor）：引用文本真实存在
         于另一片段（seg1）但不存在于所指片段（seg2）→ 仍拒绝——
@@ -213,8 +291,11 @@ class TestFaithfulnessGateBehavior:
 
 class TestFaithfulnessBoundaries:
     def test_reasoning_reject_keeps_single_disposition(self, tmp_path, ass_file):
-        """拒绝下落只有一个：推理审计已拒的单元不再经忠实性比对留第二
-        条缺口（03 票机制不受影响）——单单元单条目，reason 来自推理审计。"""
+        """票内裁定（单单元单条下落）：本票程序门按 What 措辞只作用于
+        "即使推理审计替身判「通过」"的准入路径；推理审计已拒的单元已有
+        完整下落（03 票裁定：拒绝先于后续挡板/程序门生效），不再经忠实
+        性比对留第二条缺口——单单元单条目，reason 来自推理审计，对账
+        （A3）中一个单元恰有一个状态与一条下落。"""
 
         roles = CognitiveRoles(
             extractor=StubExtractor(script={"ep01": make_units_a1_fake_quote()}),
@@ -249,14 +330,8 @@ class TestFaithfulnessBoundaries:
             ),
             coverage_auditor=StubCoverageAuditor(),
         )
-        mod = types.ModuleType("inconclusive_fake_stub_roles")
-        mod.stub_roles = lambda: roles  # type: ignore[attr-defined]
-        sys.modules["inconclusive_fake_stub_roles"] = mod
-        from subtitle_forge.cli import main
-
         with pytest.raises(OutOfScopeVerdictError, match="u-002.*inconclusive"):
-            main(["run", str(ass_file.parent), str(tmp_path / "assets"),
-                  "--stub-module", "inconclusive_fake_stub_roles"])
+            run_cli(ass_file, tmp_path / "assets", roles, module_name="inconclusive_fake_stub_roles")
 
     def test_missing_reference_still_fails_loud(self, tmp_path, ass_file):
         """无 Source Reference 单元的下落不属本票（06 票）：通过结论 +
@@ -270,11 +345,5 @@ class TestFaithfulnessBoundaries:
             source_reference=None,
         )
         roles = pass_all_roles(single_unit(no_ref_unit))
-        mod = types.ModuleType("noref_faithfulness_stub_roles")
-        mod.stub_roles = lambda: roles  # type: ignore[attr-defined]
-        sys.modules["noref_faithfulness_stub_roles"] = mod
-        from subtitle_forge.cli import main
-
         with pytest.raises(OutOfScopeVerdictError, match="u-noref.*missing_source_reference"):
-            main(["run", str(ass_file.parent), str(tmp_path / "assets"),
-                  "--stub-module", "noref_faithfulness_stub_roles"])
+            run_cli(ass_file, tmp_path / "assets", roles, module_name="noref_faithfulness_stub_roles")

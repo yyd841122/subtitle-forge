@@ -126,14 +126,18 @@ def _normalize_for_quote_match(text: str) -> str:
     return _WHITESPACE_RUN_RE.sub(" ", text).strip()
 
 
-def _faithfulness_rejection_reason(source: Source, unit: KnowledgeUnit) -> str | None:
+def _faithfulness_rejection_reason(
+    normalized_segments: dict[str, str], unit: KnowledgeUnit
+) -> str | None:
     """忠实性程序比对（R3.1、A1）：quoted_text 必须能在所指 Segment 的
     原文中比对成立（Segment.text 为比对基准）。
 
-    返回 None 表示成立；否则返回以 _FAITHFULNESS_REASON_PREFIX 开头的
-    拒绝理由。纯程序比对，不经任何认知角色（Impl 5）。比对成立 = 最小
-    规范化后的引用文本是所指片段规范化原文的逐字子串；空引用文本不
-    构成逐字引用（空串是任意文本的子串，不得因此空洞成立）。
+    ``normalized_segments`` 是按 segment_id 索引的最小规范化原文（每个
+    Source 构建一次）。返回 None 表示成立；否则返回以
+    _FAITHFULNESS_REASON_PREFIX 开头的拒绝理由。纯程序比对，不经任何
+    认知角色（Impl 5）。比对成立 = 最小规范化后的引用文本是所指片段
+    规范化原文的逐字子串；空引用文本不构成逐字引用（空串是任意文本的
+    子串，不得因此空洞成立）。
     """
 
     ref = unit.source_reference
@@ -141,10 +145,10 @@ def _faithfulness_rejection_reason(source: Source, unit: KnowledgeUnit) -> str |
     quote = _normalize_for_quote_match(ref.quoted_text)
     if not quote:
         return f"{_FAITHFULNESS_REASON_PREFIX}：引用文本为空，不构成逐字引用"
-    segment = next((s for s in source.segments if s.segment_id == ref.segment_id), None)
-    if segment is None:
+    segment_text = normalized_segments.get(ref.segment_id)
+    if segment_text is None:
         return f"{_FAITHFULNESS_REASON_PREFIX}：所指片段 {ref.segment_id} 不存在于该 Source 的原文"
-    if quote not in _normalize_for_quote_match(segment.text):
+    if quote not in segment_text:
         return f"{_FAITHFULNESS_REASON_PREFIX}：引用文本不存在于所指片段 {ref.segment_id} 的原文"
     return None
 
@@ -166,6 +170,12 @@ def run_corpus(corpus: Corpus, roles: CognitiveRoles) -> RunOutcome:
         # —— 提炼（生成认知责任）——
         extraction = roles.extractor.extract(source)
         source_units[source.source_id] = extraction.units
+
+        # 忠实性比对基准索引：每个 Segment 原文最小规范化恰一次，单元
+        # 程序门按 segment_id 直接查找（比对基准是所指 Segment 的原文）。
+        normalized_segments = {
+            s.segment_id: _normalize_for_quote_match(s.text) for s in source.segments
+        }
 
         # —— 单元级审查（独立认知责任，R3.4）——
         units_record: list[UnitRecord] = []
@@ -201,7 +211,7 @@ def run_corpus(corpus: Corpus, roles: CognitiveRoles) -> RunOutcome:
             # 审计门 = 程序比对 ∧ 推理审计：推理审计通过不足以放行——
             # quoted_text 无法在所指 Segment 原文比对成立的单元同样拒绝，
             # 经同一拒绝下落机制（03 票）。不经任何认知角色（Impl 5）。
-            faithfulness_reason = _faithfulness_rejection_reason(source, unit)
+            faithfulness_reason = _faithfulness_rejection_reason(normalized_segments, unit)
             if faithfulness_reason is not None:
                 _reject_unit(source, unit, faithfulness_reason, gaps, units_record)
                 continue

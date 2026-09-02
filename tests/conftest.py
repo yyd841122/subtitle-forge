@@ -271,6 +271,7 @@ Dialogue: 0,0:00:14.00,0:00:18.30,Default,,0,0,0,,因此递归深度必须有限
 """
 
 # 解析后 seg2 的原文形态：\\N 成为换行字符（文本本体不变）。
+# 下方变体单元的引用文本由此显式派生，引用与受控输入的对应关系可查。
 NEWLINE_SEG2_TEXT = "求解阶乘分两步\n先写基准情形再递归调用自身"
 
 
@@ -287,8 +288,11 @@ def make_units_newline_variants() -> tuple[KnowledgeUnit, ...]:
     """最小规范化容差的对照单元（锚定换行 seg2）：u-nl-space 的引用
     文本仅以空格代替原文换行（排版差异，规范化后比对成立）；
     u-nl-alter 在同样排版之上还改动一个非空白字符（两→三，任何规范化
-    下都不成立）——初始算法"只容忍排版、不容忍内容改动"的受控对照。"""
+    下都不成立）——初始算法"只容忍排版、不容忍内容改动"的受控对照。
+    引用文本由 NEWLINE_SEG2_TEXT 显式派生（换行→空格 / 再改一字）。"""
 
+    space_quote = NEWLINE_SEG2_TEXT.replace("\n", " ")
+    altered_quote = space_quote.replace("两", "三")
     return (
         KnowledgeUnit(
             unit_id="u-nl-space",
@@ -296,7 +300,7 @@ def make_units_newline_variants() -> tuple[KnowledgeUnit, ...]:
             statement="求解阶乘分两步：先写基准情形再递归调用自身",
             source_reference=SourceReference(
                 segment_id=seg_id(2),
-                quoted_text="求解阶乘分两步 先写基准情形再递归调用自身",
+                quoted_text=space_quote,
                 locator=TimeRangeLocator(start_ms=7500, end_ms=13200),
             ),
         ),
@@ -306,7 +310,7 @@ def make_units_newline_variants() -> tuple[KnowledgeUnit, ...]:
             statement="求解阶乘分三步：先写基准情形再递归调用自身",
             source_reference=SourceReference(
                 segment_id=seg_id(2),
-                quoted_text="求解阶乘分三步 先写基准情形再递归调用自身",
+                quoted_text=altered_quote,
                 locator=TimeRangeLocator(start_ms=7500, end_ms=13200),
             ),
         ),

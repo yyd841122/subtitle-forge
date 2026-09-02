@@ -2,10 +2,11 @@
 
     subtitle-forge run <corpus_dir> <asset_dir> [--stub-module MODULE]
 
-Ticket 01 只需单 Source 全量运行一种形态；批处理、指定范围等属 02 票。
+Corpus 批处理：一次 run 顺序处理目录内全部 Source（R1.1，票 02）。
+请求形态仍只有全量一种——运行范围控制（指定 Source 子集）属 09 票。
 替身注入是测试输入的一部分（Testing Decisions）：--stub-module 指向的
 Python 模块暴露 ``stub_roles() -> CognitiveRoles``，管线据此组装认知
-角色集；不指定时使用通过路径的默认替身（13/14 票接入真实模型）。
+角色集；不指定时使用通过路径的默认替身（真实角色接入属 27/28 票）。
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ from .roles import CognitiveRoles, StubCoverageAuditor, StubExtractor, StubInfer
 
 def _default_stub_roles() -> CognitiveRoles:
     """默认替身：产出空（无脚本），通过路径形态——真实运行前须显式注入
-    或接入真实角色（13 票）。fail_on_unscripted 关闭，避免空跑崩溃。"""
+    或接入真实角色（27 票）。fail_on_unscripted 关闭，避免空跑崩溃。"""
 
     return CognitiveRoles(
         extractor=StubExtractor(script={}, fail_on_unscripted=False),
@@ -59,17 +60,12 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     corpus = load_corpus(args.corpus_dir)
-    # Ticket 01 的运行请求形态：恰好一个 Source。批处理（多 Source、
-    # 指定范围）属 02 票——在此之前明确拒绝，不静默选择批处理语义。
+    # 空 Corpus 明确拒绝（R1.1：Corpus 是批处理单位，空批不构成一次
+    # 运行；不静默产出"空跑成功"的产物）。≥1 个 Source 即顺序批处理
+    # （文件名序、确定性，票内裁定）；无失败隔离——任一 Source 异常
+    # 仍使整次运行失败（fail loud，07 票落隔离）。
     if len(corpus.sources) == 0:
         print(f"corpus 目录无 .ass Source：{args.corpus_dir}", file=sys.stderr)
-        return 1
-    if len(corpus.sources) > 1:
-        print(
-            f"Ticket 01 仅支持单 Source 运行，发现 {len(corpus.sources)} 个"
-            " .ass Source（多 Source 批处理属 02 票）",
-            file=sys.stderr,
-        )
         return 1
 
     roles = (
@@ -79,13 +75,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     outcome = run_corpus(corpus, roles)
 
-    # 落盘：按 Source 的忠实层资产 + 全局产物（候选单元取自运行结果，
-    # 不对认知角色做二次调用）。
-    source = corpus.sources[0]
+    # 落盘：每个 Source 的忠实层资产（R6.4：资产与 Source 明确对应）+
+    # 全局产物（候选单元取自运行结果，不对认知角色做二次调用）。
     write_all(
         args.asset_dir,
-        source,
-        list(outcome.source_units.get(source.source_id, ())),
+        corpus.sources,
+        outcome.source_units,
         outcome.trusted_set,
         outcome.gap_report,
         outcome.run_summary,

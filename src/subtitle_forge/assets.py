@@ -1,13 +1,14 @@
 """资产落盘：外部产物 → 按 Source 组织的可移植文件资产（初始形态，Open Impl 7）。
 
-规范源形态（ADR-0006 裁定，15 票可修正迁移）：人可读 Markdown 为主、
+规范源形态（ADR-0006 裁定；终裁与迁移属 25 票）：人可读 Markdown 为主、
 结构内嵌 JSON 代码块。忠实层/审查层、基础层/衍生层的概念边界在目录
 组织中成立（Ticket 01 完成项；R2.5、R2.6 的结构前提）：
 
     <asset_root>/
       sources/<source_id>/
         knowledge-units.md      # 忠实层：知识单元（含来源引用）
-      review/                   # 审查层：系统判断（Review Note 归 09 票）
+      review/                   # 审查层：系统判断（Review Note 由审查
+                                # 环节产出，R3.6；18 票落地）
       derived/                  # 衍生层：跨 Source 结构（可整体重算）
       trusted-set.md            # 可信发布集（全 Corpus）
       gap-report.md             # 缺口报告
@@ -19,6 +20,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from .artifacts import (
@@ -47,7 +49,7 @@ def _fence(obj) -> str:
 def write_source_asset(
     dir_root: Path,
     source: Source,
-    units: list[KnowledgeUnit],
+    units: Sequence[KnowledgeUnit],
 ) -> Path:
     """写一个 Source 的忠实层资产（基础层，独立成立）。
 
@@ -216,7 +218,7 @@ def _asset_organization(dir_root: Path) -> dict:
     """从已写盘的目录结构生成资产组织清单（相对路径声明）。
 
     忠实层 = 各 Source 的知识资产；审查层 = 系统判断（Review Note，
-    09 票产出）；衍生层 = 跨 Source 可重算结构（15 票裁定形态）。
+    R3.6）；衍生层 = 跨 Source 可重算结构（R2.7 最小形态）。
     """
 
     faithful = sorted(
@@ -232,16 +234,25 @@ def _asset_organization(dir_root: Path) -> dict:
 
 def write_all(
     dir_root: Path,
-    source: Source,
-    units: list[KnowledgeUnit],
+    sources: Sequence[Source],
+    source_units: Mapping[str, Sequence[KnowledgeUnit]],
     trusted: TrustedSet,
     gaps: GapReport,
     summary: RunSummary,
 ) -> list[Path]:
-    """落盘全部产物：该 Source 的忠实层资产 + 全局产物（可信发布集/
-    缺口报告/运行摘要），含空但结构完整的审查层/衍生层占位目录。"""
+    """落盘全部产物：每个 Source 的忠实层资产（R6.4：资产与 Source 明确
+    对应）+ 全局产物（可信发布集/缺口报告/运行摘要），含空但结构完整的
+    审查层/衍生层占位目录。
 
-    written = [write_source_asset(dir_root, source, units)]
+    ``source_units`` 与 ``sources`` 一一对应（管线保证每个处理的 Source
+    都有条目）；缺失即内部不变量破坏，直接失败（fail loud，不静默产出
+    空资产）。
+    """
+
+    written: list[Path] = []
+    for source in sources:
+        units = source_units[source.source_id]
+        written.append(write_source_asset(dir_root, source, units))
     (dir_root / "review").mkdir(parents=True, exist_ok=True)
     (dir_root / "derived").mkdir(parents=True, exist_ok=True)
     (dir_root / "review" / ".gitkeep").write_text("", encoding="utf-8")

@@ -257,19 +257,6 @@ class TestRoleStubInjection:
         b = run_and_write(tmp_path / "b", ass_file, default_roles(self.UNITS()[:2]))
         assert parse_json_block(a / "trusted-set.md") == parse_json_block(b / "trusted-set.md")
 
-    def test_run_request_rejects_multi_source(self, tmp_path, ass_file):
-        """Ticket 01 运行形态 = 恰好一个 Source：多 Source 被明确拒绝
-        （批处理属 02 票），通过运行请求接缝观察。"""
-
-        (ass_file.parent / "ep02.ass").write_text(
-            ass_file.read_text(encoding="utf-8"), encoding="utf-8"
-        )
-        asset_dir = tmp_path / "assets"
-        from subtitle_forge.cli import main
-
-        rc = main(["run", str(ass_file.parent), str(asset_dir)])
-        assert rc == 1  # 明确拒绝，不静默走批处理
-
 
 # ---------------------------------------------------------------------------
 # 概念边界在资产组织中成立（忠实层/审查层、基础层/衍生层，最小形态）

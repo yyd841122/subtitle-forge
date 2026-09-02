@@ -2,8 +2,9 @@
 
 V1 验收范围只有 ASS（R1.2）。解析保持最小可用：读取 [Events] 段的
 Dialogue 行，剥离 ASS 内联样式标记（{\\...} override blocks 与绘制命令），
-保留文本本体。其他格式的接入不被架构性排除——新格式实现同样的
-"文件内容 → Source" 纯函数即可挂入（02 票裁定扩展形态）。
+保留文本本体。其他格式的接入不被架构性排除（R1.2：解析层可扩展，
+具体格式不在 V1 验收范围）——新格式实现同样的"文件内容 → Source"
+纯函数即可挂入。
 """
 
 from __future__ import annotations
@@ -80,8 +81,9 @@ def load_ass_file(path: Path) -> Source:
 def load_corpus(corpus_dir: Path) -> Corpus:
     """目录内全部 .ass 文件（按文件名排序）→ Corpus。
 
-    Ticket 01 只有单 Source 形态；多 Source 批处理语义归 02 票，这里
-    只提供最小的目录读取，不预设任何批处理策略。
+    批处理顺序语义（票 02 票内裁定确认）：文件名序、确定性。R1.1：
+    Corpus 是批处理单位——这里只做读取与排序，不预设跳过/运行范围
+    控制等运行策略。
     """
 
     files = sorted(corpus_dir.glob("*.ass"))

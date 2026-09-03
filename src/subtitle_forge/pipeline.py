@@ -45,6 +45,17 @@ Source failed：缺口报告留 execution_failure 条目（含原因与下落）
 性错误（Corpus 装载、替身装载、资产落盘——作用域之外）仍中止整批
 （R5.5；判定清单是 Open Impl 13 初始判据，完备化属后续票）。
 
+噪声容忍的确定性验收（08 票，R1.3、A11、A13 确定性半边、R4.2）：
+解析层容忍跳过的输入行以缺口报告 ``warning`` 条目显性化（Source、
+跳过原因——行号与行内容可辨、下落「不影响处理」）；内容级噪声
+（口头填充、重复、轻微转写错误）的处理不失败，噪声不进知识单元——
+后者由提炼角色锚定知识性 Segment 达成（替身脚本化；真实角色的内容
+判断质量是概率性行为，由 29 票非门禁 eval 覆盖，不计入 A13 验收）。
+warning 是缺口类别而非实体状态：不改变 Source 成功/失败/待复核的
+裁定（R4.4/R4.6 不混用）。warning 条目在处理作用域之外发射（票内
+裁定）：它是输入观察而非处理产物——Source 处理失败时保留，与
+execution_failure 并存，07 票原子性只作废处理产物。
+
 角色行为的可观察性（Testing Decisions：替身分别设定行为，断言只针对
 外部产物）：提炼行为体现在可信发布集内容；推理审计的结论理由（通过/
 拒绝/待复核）记录进运行摘要，拒绝另留缺口条目；覆盖审计结论记录进
@@ -63,6 +74,8 @@ from .artifacts import (
     GAP_EXECUTION_FAILURE,
     GAP_OUTCOME_AUDIT_REJECTION,
     GAP_OUTCOME_EXECUTION_FAILURE,
+    GAP_OUTCOME_PARSE_WARNING,
+    GAP_WARNING,
     SOURCE_STATUS_FAILED,
     SOURCE_STATUS_NEEDS_REVIEW,
     SOURCE_STATUS_SUCCESS,
@@ -78,7 +91,7 @@ from .artifacts import (
     TrustedSetEntry,
     UnitRecord,
 )
-from .model import Corpus, KnowledgeUnit, Source
+from .model import Corpus, KnowledgeUnit, ParseWarning, Source
 from .roles import CognitiveRoles, CoverageVerdict
 
 
@@ -196,6 +209,25 @@ def _execution_failure_reason(exc: BaseException) -> str:
     保留真实错误信息（A11：条目含原因），机器可辨（确定性拼接）。"""
 
     return f"{type(exc).__name__}：{exc}"
+
+
+def _parse_warning_gap(source: Source, warning: ParseWarning) -> GapEntry:
+    """解析容忍跳过 → 缺口报告 warning 条目（08 票，R1.3、R4.2、A11）。
+
+    条目承载：Source（source_id）、跳过原因（reason 内嵌行号与行内容，
+    人可辨所指输入行）、下落（不影响处理）。subject 是所指输入行的
+    Source 内标识（``L<行号>``——与 audit_rejection 用 unit_id 同族：
+    最具体身份，Source 归属另由 source_id 字段承载）。warning 不改变
+    Source 的实体状态（不是失败/待复核，R4.4/R4.6）。
+    """
+
+    return GapEntry(
+        category=GAP_WARNING,
+        source_id=source.source_id,
+        subject=f"L{warning.lineno}",
+        reason=f"第 {warning.lineno} 行被容忍跳过：{warning.reason}",
+        outcome=GAP_OUTCOME_PARSE_WARNING,
+    )
 
 
 @dataclass(frozen=True)
@@ -416,6 +448,14 @@ def run_corpus(corpus: Corpus, roles: CognitiveRoles) -> RunOutcome:
     source_units: dict[str, tuple[KnowledgeUnit, ...]] = {}
 
     for source in corpus.sources:
+        # —— 解析级噪声显性化（08 票，R1.3）——
+        # 解析层容忍跳过的输入行转为 warning 条目。发射点在处理作用域
+        # 之外（try 之前，票内裁定）：warning 是输入观察——解析层已
+        # 成立的跳过事实，不是处理产物；07 票产物性原子作废的是处理
+        # 产物（已处置单元下落、缺口条目、发布集条目），对账性状态
+        # 保留（已知单元不静默消失）——被跳过的输入行同属"输入侧
+        # 事实不消失"一族，Source 处理失败不掩盖其解析异常。
+        gaps.extend(_parse_warning_gap(source, w) for w in source.parse_warnings)
         progress = _SourceProgress()
         try:
             processed = _process_source(source, roles, progress)

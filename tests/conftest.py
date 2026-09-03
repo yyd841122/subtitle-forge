@@ -553,3 +553,177 @@ def make_ep02_units() -> tuple[KnowledgeUnit, ...]:
             ),
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# Ticket 08 受控输入：解析级畸形（warning 显性化）与内容级噪声（A13 确定性）
+# ---------------------------------------------------------------------------
+
+# 受控 ASS（解析噪声）：两类票面钉死的畸形（L12 字段不足 → 正则不匹配；
+# L13 清洗后空文本）+ 一类票内裁定的畸形（L15 无效时间戳 → warning 化
+# 并跳过）。知识行 L11/L14 照常解析为 Segment——"跳过不中断、其余
+# 照常"的对照形态。行号由本 fixture 钉死（L11/12/13/14/15），供
+# warning 条目的行号断言。
+ASS_CONTENT_MALFORMED = """[Script Info]
+Title: 受控课程 解析噪声
+ScriptType: v4.00+
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour
+Style: Default,Arial,16,&H00FFFFFF
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:01.00,0:00:06.00,Default,,0,0,0,,递归的核心结构是函数调用自身并逐步缩小问题规模
+Dialogue: 0,0:00:01.00,Default
+Dialogue: 0,0:00:07.50,0:00:13.20,Default,,0,0,0,,{\\pos(1,2)}{\\fad(100,100)}
+Dialogue: 0,0:00:07.50,0:00:13.20,Default,,0,0,0,,求解阶乘时先写基准情形 n 等于零返回一{\\an8}再递归调用自身
+Dialogue: 0,0:0X:14.00,0:00:18.30,Default,,0,0,0,,因此递归深度必须有限否则栈会溢出
+"""
+
+# 畸形 fixture 的钉死行号（与上方内容一一对应；改动内容须同步此处）。
+MALFORMED_LINENO_INSUFFICIENT_FIELDS = 12
+MALFORMED_LINENO_EMPTY_TEXT = 13
+MALFORMED_LINENO_INVALID_TIMESTAMP = 15
+
+
+@pytest.fixture
+def malformed_ass_file(tmp_path: Path) -> Path:
+    """含三类解析畸形的 .ass 文件（独立 corpus 目录、单 Source ep01）。
+    知识 Segment 只剩两个（L11/L14）——L15 的知识内容随时间戳损坏被
+    跳过，其损失由 warning 条目的行内容显性化（A11）。"""
+
+    corpus_dir = tmp_path / "corpus-malformed"
+    corpus_dir.mkdir()
+    f = corpus_dir / "ep01.ass"
+    f.write_text(ASS_CONTENT_MALFORMED, encoding="utf-8")
+    return f
+
+
+def make_malformed_units() -> tuple[KnowledgeUnit, ...]:
+    """畸形 fixture 的两个知识单元：只锚定照常解析的知识 Segment
+    （seg0001 ← L11、seg0002 ← L14）——"知识单元照常"的受控脚本。"""
+
+    return (
+        KnowledgeUnit(
+            unit_id="u-001",
+            unit_type="claim",
+            statement="递归的核心结构是函数调用自身并逐步缩小问题规模",
+            source_reference=SourceReference(
+                segment_id=seg_id(1),
+                quoted_text=SEG_TEXTS[0],
+                locator=TimeRangeLocator(start_ms=1000, end_ms=6000),
+            ),
+        ),
+        KnowledgeUnit(
+            unit_id="u-002",
+            unit_type="method",
+            statement="求阶乘：先写基准情形 n=0 返回 1，再递归调用自身",
+            source_reference=SourceReference(
+                segment_id=seg_id(2),
+                quoted_text=SEG_TEXTS[1],
+                locator=TimeRangeLocator(start_ms=7500, end_ms=13200),
+            ),
+        ),
+    )
+
+
+# 受控 ASS（内容噪声，A13 确定性半边）：七条 Dialogue 全部结构正常
+# （无解析畸形 ⇒ 无 warning），其中四条是内容级噪声——L11 口头填充
+# 开场、L13 重复、L15 轻微转写错误（接乘/阶乘 自我纠正）、L17 寒暄
+# 收尾；三条知识行（L12/L14/L16）与 ep01 的知识文本一致。知识单元
+# 只锚定知识 Segment（替身脚本化）——噪声进不了知识单元的机制本身。
+ASS_CONTENT_NOISY = """[Script Info]
+Title: 受控课程 内容噪声
+ScriptType: v4.00+
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour
+Style: Default,Arial,16,&H00FFFFFF
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.50,0:00:02.00,Default,,0,0,0,,呃 那个 今天我们开始讲递归
+Dialogue: 0,0:00:02.10,0:00:07.00,Default,,0,0,0,,递归的核心结构是函数调用自身并逐步缩小问题规模
+Dialogue: 0,0:00:07.10,0:00:09.00,Default,,0,0,0,,嗯 函数调用自身 函数调用自身 就是缩小问题规模 嗯
+Dialogue: 0,0:00:09.10,0:00:14.00,Default,,0,0,0,,求解阶乘时先写基准情形 n 等于零返回一再递归调用自身
+Dialogue: 0,0:00:14.10,0:00:16.00,Default,,0,0,0,,呃 求解接乘 求解阶乘 对吧 先写基准情形
+Dialogue: 0,0:00:16.10,0:00:20.00,Default,,0,0,0,,因此递归深度必须有限否则栈会溢出
+Dialogue: 0,0:00:20.10,0:00:22.00,Default,,0,0,0,,好 那我们今天就讲到这里 谢谢大家
+"""
+
+# 噪声片段清单（受控钉死）：口头填充（呃/那个/嗯/对吧）、转写错字
+# （接乘）、寒暄（谢谢大家）、重复形态（连续两遍的"函数调用自身"）。
+# 断言依据：这些片段均不出现在任何知识单元的 statement / quoted_text
+# （知识文本 SEG_TEXTS 与干净 statement 均不含它们——受控可验证）。
+NOISE_FRAGMENTS = (
+    "呃",
+    "那个",
+    "嗯",
+    "对吧",
+    "接乘",
+    "谢谢大家",
+    "函数调用自身 函数调用自身",
+)
+
+# 纯噪声 Segment 的原文（L11 解析产物）：边界测试的逐字引用来源——
+# 系统准入门不得对其做内容过滤（08 票明确不含，触界行为）。
+NOISY_SEG1_TEXT = "呃 那个 今天我们开始讲递归"
+
+# 噪声 fixture 中知识 Segment 的位置（ Dialogue 行序 = Segment 序）：
+# seg0002 ← L12、seg0004 ← L14、seg0006 ← L16（噪声行各自占位但不获锚定）。
+
+
+def noisy_seg_id(n: int) -> str:
+    return f"noisy#seg{n:04d}"
+
+
+@pytest.fixture
+def noisy_ass_file(tmp_path: Path) -> Path:
+    """含内容级噪声的 .ass 文件（独立 corpus 目录、单 Source noisy）。"""
+
+    corpus_dir = tmp_path / "corpus-noisy"
+    corpus_dir.mkdir()
+    f = corpus_dir / "noisy.ass"
+    f.write_text(ASS_CONTENT_NOISY, encoding="utf-8")
+    return f
+
+
+def make_noisy_units() -> tuple[KnowledgeUnit, ...]:
+    """噪声 fixture 的三个知识单元：claim / method / conclusion，只锚定
+    知识 Segment（seg0002/seg0004/seg0006），statement 与 quoted_text
+    均为干净知识文本——"噪声不出现在知识单元"的替身脚本化实现
+    （内容判断属提炼角色；真实角色的判断质量由 29 票 eval 覆盖）。"""
+
+    return (
+        KnowledgeUnit(
+            unit_id="u-n001",
+            unit_type="claim",
+            statement="递归的核心结构是函数调用自身并逐步缩小问题规模",
+            source_reference=SourceReference(
+                segment_id=noisy_seg_id(2),
+                quoted_text=SEG_TEXTS[0],
+                locator=TimeRangeLocator(start_ms=2100, end_ms=7000),
+            ),
+        ),
+        KnowledgeUnit(
+            unit_id="u-n002",
+            unit_type="method",
+            statement="求阶乘：先写基准情形 n=0 返回 1，再递归调用自身",
+            source_reference=SourceReference(
+                segment_id=noisy_seg_id(4),
+                quoted_text=SEG_TEXTS[1],
+                locator=TimeRangeLocator(start_ms=9100, end_ms=14000),
+            ),
+        ),
+        KnowledgeUnit(
+            unit_id="u-n003",
+            unit_type="conclusion",
+            statement="递归深度必须有限，否则栈会溢出",
+            source_reference=SourceReference(
+                segment_id=noisy_seg_id(6),
+                quoted_text=SEG_TEXTS[2],
+                locator=TimeRangeLocator(start_ms=16100, end_ms=20000),
+            ),
+        ),
+    )

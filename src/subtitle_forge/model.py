@@ -21,6 +21,22 @@ SegmentId = str
 
 
 @dataclass(frozen=True)
+class ParseWarning:
+    """解析层对一行输入的容忍跳过记录（08 票，R1.3 显性化）。
+
+    格式中立的摄入观察：哪个输入行被跳过（``lineno``，文件内容中的
+    1 起物理行号）、为什么（``reason`` 含行内容，人可辨）。载体是
+    ``Source.parse_warnings``（票内裁定：Source 模型字段而非解析报告
+    结构——跳过事实随 Source 本体流动，不会与所指 Source 脱钩）。
+    运行侧据此产出缺口报告 warning 条目（A11）；warning 不改变 Source
+    的实体状态（不是失败，也不是待复核，R4.4/R4.6）。
+    """
+
+    lineno: int
+    reason: str
+
+
+@dataclass(frozen=True)
 class Segment:
     """Source 内可定位的语义片段，引用锚定的目标（CONTEXT.md：片段）。
 
@@ -46,6 +62,10 @@ class Source:
 
     source_id: str
     segments: tuple[Segment, ...]
+    # 摄入观察（08 票）：解析该 Source 时被容忍跳过的输入行，运行侧
+    # 转为缺口报告 warning 条目。默认空——结构正常、无跳过的 Source
+    # 不携带任何观察（清洁运行 warning 为空，A13/AC3）。
+    parse_warnings: tuple[ParseWarning, ...] = ()
 
 
 @dataclass(frozen=True)

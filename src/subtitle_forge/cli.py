@@ -1,15 +1,24 @@
 """CLI 最小入口（Open Impl 1 的裁定，ADR-0006）：仅当前运行请求所需。
 
-    subtitle-forge run <corpus_dir> <asset_dir> [--stub-module MODULE]
+    subtitle-forge run <corpus_dir> <asset_dir> [--source ID[,ID…]] [--stub-module MODULE]
 
-Corpus 批处理：一次 run 顺序处理目录内全部 Source（R1.1，票 02）。
+Corpus 批处理：一次 run 顺序处理目录内全部 Source（R1.1，票 02）——
+这是 --source 省略时的默认行为；指定 --source 时仅处理被选子集（见下）。
 Source 失败隔离（07 票）：单个 Source 的处理抛错只使该 Source failed
 （缺口 execution_failure、摘要留痕），其余 Source 照常完成，运行以
-部分失败结束；全局性错误（R5.5）中止整批。请求形态仍只有全量一种——
-运行范围控制（指定 Source 子集）属 09 票。替身注入是测试输入的一部分
+部分失败结束；全局性错误（R5.5）中止整批。替身注入是测试输入的一部分
 （Testing Decisions）：--stub-module 指向的 Python 模块暴露
 ``stub_roles() -> CognitiveRoles``，管线据此组装认知角色集；不指定时
 使用通过路径的默认替身（真实角色接入属 27/28 票）。
+
+运行范围控制（09 票，R5.1/R5.2、A7 触发形态、A12 控制手段）：--source
+以逗号分隔的 id 列表指定 Source 子集，仅被选 Source 进入处理；未选
+Source 本次完全不触碰（忠实层资产不创建、其解析观察不产生）——范围
+控制成为可观察的成本控制手段。load_corpus 仍装载全量（02 票语义），
+过滤在运行请求层完成；批内处理顺序维持文件名序（选择是成员资格，
+不重排）。范围运行仅面向全新资产目录：对已有资产目录的范围运行触界
+明确拒绝（fail loud）——「未选 Source 引用既有产出」的表达由后续票
+落定后自然开放，本票不固化与 R4.3/A3 相抵的临时语义。
 
 退出码契约（07 票票内裁定）：
 
@@ -19,7 +28,9 @@ Source 失败隔离（07 票）：单个 Source 的处理抛错只使该 Source 
        stdout 列名失败 Source）
     2  用法错误（argparse 标准）
     3  全局中止：运行未完成、无完整产物集（Corpus 装载失败/空 Corpus、
-       替身模块装载失败、资产落盘失败——Open Impl 13 初始判据）
+       替身模块装载失败、资产落盘失败——Open Impl 13 初始判据；09 票
+       增判据：范围请求校验失败——选不存在的 Source id、范围运行触碰
+       已有资产目录）
 """
 
 from __future__ import annotations
@@ -33,6 +44,7 @@ from pathlib import Path
 from .artifacts import SOURCE_STATUS_FAILED
 from .assets import write_all
 from .ass import load_corpus
+from .model import Corpus
 from .pipeline import run_corpus
 from .roles import CognitiveRoles, StubCoverageAuditor, StubExtractor, StubInferenceAuditor
 
@@ -123,6 +135,23 @@ def _global_abort(stage: str, exc: Exception) -> int:
     return EXIT_GLOBAL_ABORT
 
 
+def _parse_source_selection(value: str) -> tuple[str, ...]:
+    """``--source`` 的取值解析（09 票票内裁定：``id[,id…]`` 形态）。
+
+    空值或含空 token（如 ``ep01,,ep02``）是用法错误（argparse 标准，
+    退出码 2）——解析层即拒绝，不进入运行；id 是否存在于 Corpus 属
+    请求语义校验，须待 Corpus 装载后在 main 里判定（fail loud，退出码 3）。
+    """
+
+    ids = tuple(value.split(","))
+    if any(not token for token in ids):
+        raise argparse.ArgumentTypeError(
+            f"无效的 Source 选择 {value!r}：须为逗号分隔的非空 id 列表（如 ep01,ep02）；"
+            "省略本参数则为全量运行"
+        )
+    return ids
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="subtitle-forge", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -130,6 +159,13 @@ def main(argv: list[str] | None = None) -> int:
     run_parser = sub.add_parser("run", help="对一个 Corpus 目录执行端到端运行")
     run_parser.add_argument("corpus_dir", type=Path, help="含 .ass Source 文件的目录")
     run_parser.add_argument("asset_dir", type=Path, help="资产输出目录")
+    run_parser.add_argument(
+        "--source",
+        type=_parse_source_selection,
+        default=None,
+        metavar="ID[,ID…]",
+        help="运行范围：仅处理指定的 Source（逗号分隔）；省略则为全量运行",
+    )
     run_parser.add_argument(
         "--stub-module",
         type=str,
@@ -140,6 +176,17 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command != "run":  # pragma: no cover - argparse 已保证
         return 2
+
+    # —— 范围请求校验 (a)（09 票触界，fail loud）——范围运行仅面向
+    # 全新资产目录：触碰已有目录即拒绝（运行未开始，全局中止族）。
+    # 以「目录是否存在」为界，不定义"什么算资产目录"的临时语义。
+    if args.source is not None and args.asset_dir.exists():
+        print(
+            f"范围运行拒绝：资产目录已存在，本票范围运行仅面向全新资产目录："
+            f"{args.asset_dir}",
+            file=sys.stderr,
+        )
+        return EXIT_GLOBAL_ABORT
 
     # —— 全局错误初始判据 (a)：Corpus 装载（07 票，Open Impl 13）——
     try:
@@ -152,6 +199,25 @@ def main(argv: list[str] | None = None) -> int:
     if len(corpus.sources) == 0:
         print(f"corpus 目录无 .ass Source：{args.corpus_dir}", file=sys.stderr)
         return EXIT_GLOBAL_ABORT
+
+    # —— 范围请求校验 (b)（09 票）：选中的 id 必须都存在于 Corpus——
+    # 要么整体成立、要么不开始（不静默降级为「处理存在的那些」）。
+    # 过滤在运行请求层完成（load_corpus 仍装载全量）；处理顺序维持
+    # 文件名序（选择是成员资格，不重排）。
+    if args.source is not None:
+        known_ids = {s.source_id for s in corpus.sources}
+        unknown_ids = [sid for sid in args.source if sid not in known_ids]
+        if unknown_ids:
+            print(
+                f"范围运行拒绝：选中的 Source 不存在于 Corpus：{'、'.join(unknown_ids)}"
+                f"（可用：{'、'.join(sorted(known_ids))}）",
+                file=sys.stderr,
+            )
+            return EXIT_GLOBAL_ABORT
+        selected = set(args.source)
+        corpus = Corpus(
+            sources=tuple(s for s in corpus.sources if s.source_id in selected)
+        )
 
     # —— 全局错误初始判据 (b)：替身模块装载（07 票，Open Impl 13）——
     try:
